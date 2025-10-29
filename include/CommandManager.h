@@ -130,6 +130,59 @@ public:
      */
     bool generateInitHomeCommand(uint8_t targetBuoyId);
 
+    /**
+     * @brief Generate and send HOME_VALIDATION command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateHomeValidationCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send NAV_CAP command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateNavCapCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send NAV_HOME command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateNavHomeCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send NAV_HOLD command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateNavHoldCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send NAV_STOP command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateNavStopCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send SET_THROTTLE command with increment to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @param currentThrottle Current throttle value from buoy state
+     * @param increment Throttle increment (positive or negative)
+     * @return true if command was sent successfully
+     */
+    bool generateSetThrottleCommand(uint8_t targetBuoyId, int8_t currentThrottle, int8_t increment);
+
+    /**
+     * @brief Generate and send SET_TRUE_HEADING command with increment to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @param currentHeading Current heading value from buoy state (degrees)
+     * @param increment Heading increment in degrees (positive or negative)
+     * @return true if command was sent successfully
+     */
+    bool generateSetHeadingCommand(uint8_t targetBuoyId, float currentHeading, int16_t increment);
+
 private:
     ESPNowCommunication& espNowComm;  ///< Reference to ESP-NOW communication
     

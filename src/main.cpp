@@ -152,22 +152,142 @@ void loop() {
         }
     }
     
-    // Bouton jaune DROIT : Changement de bouée suivante
+    // Bouton jaune DROIT : Validation HOME
     if (joystick.wasButtonPressed(BTN_RIGHT_STICK)) {
-        Logger::log("\n[R] Bouton jaune DROIT presse - Bouee suivante");
-        buoyState.selectNextBuoy();
-        display.displayBuoySelection();
+        Logger::log("\n[R] Bouton jaune DROIT presse - Validation HOME");
+        uint8_t activeBuoy = buoyState.getSelectedBuoyId();
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateHomeValidationCommand(activeBuoy);
+        } else {
+            Logger::log("\n[R] Bouton jaune DROIT presse - Aucune bouee connectee");
+        }
     }
     
-    // Lecture des boutons sur les joysticks (pour futures fonctionnalités)
+    // Lecture des boutons sur les joysticks
+    // Bouton joystick GAUCHE : CMD_NAV_HOLD
     if (joystick.wasButtonPressed(BTN_LEFT)) {
-        Logger::log("\n[JS-L] Bouton stick joystick GAUCHE presse");
-        // TODO: Ajouter fonctionnalité (ex: changer mode navigation)
+        Logger::log("\n[JS-L] Bouton stick joystick GAUCHE presse - NAV_HOLD");
+        uint8_t selectedId = buoyState.getSelectedBuoyId();
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateNavHoldCommand(selectedId);
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
     }
     
+    // Détection mouvement joystick GAUCHE (Y axis)
+    // Seuil pour détecter un mouvement significatif (valeur centrée autour de 0)
+    static const int16_t JOYSTICK_THRESHOLD = 1500;  // Seuil de détection (sur ~2048)
+    static bool leftUpProcessed = false;
+    static bool leftDownProcessed = false;
+    
+    int16_t leftY = joystick.getAxisCentered(AXIS_LEFT_Y);
+    
+    // Joystick GAUCHE vers le HAUT : CMD_NAV_CAP
+    if (leftY < -JOYSTICK_THRESHOLD && !leftUpProcessed) {
+        Logger::log("\n[JS-L] Joystick GAUCHE vers le HAUT - NAV_CAP");
+        uint8_t selectedId = buoyState.getSelectedBuoyId();
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateNavCapCommand(selectedId);
+            leftUpProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (leftY > -JOYSTICK_THRESHOLD / 2) {
+        leftUpProcessed = false;  // Reset quand joystick revient au centre
+    }
+    
+    // Joystick GAUCHE vers le BAS : CMD_NAV_HOME
+    if (leftY > JOYSTICK_THRESHOLD && !leftDownProcessed) {
+        Logger::log("\n[JS-L] Joystick GAUCHE vers le BAS - NAV_HOME");
+        uint8_t selectedId = buoyState.getSelectedBuoyId();
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateNavHomeCommand(selectedId);
+            leftDownProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (leftY < JOYSTICK_THRESHOLD / 2) {
+        leftDownProcessed = false;  // Reset quand joystick revient au centre
+    }
+    
+    // ========================================================================
+    // JOYSTICK DROIT - Contrôle Throttle et Heading
+    // ========================================================================
+    
+    // Détection mouvement joystick DROIT
+    static bool rightUpProcessed = false;
+    static bool rightDownProcessed = false;
+    static bool rightRightProcessed = false;
+    static bool rightLeftProcessed = false;
+    
+    int16_t rightY = joystick.getAxisCentered(AXIS_RIGHT_Y);
+    int16_t rightX = joystick.getAxisCentered(AXIS_RIGHT_X);
+    
+    // Récupération de l'état actuel de la bouée pour incrémenter les valeurs
+    uint8_t selectedId = buoyState.getSelectedBuoyId();
+    BuoyState currentBuoyState = buoyState.getSelectedBuoyState();
+    
+    // Joystick DROIT vers le HAUT : CMD_SET_THROTTLE (+33%)
+    if (rightY < -JOYSTICK_THRESHOLD && !rightUpProcessed) {
+        Logger::log("\n[JS-R] Joystick DROIT vers le HAUT - SET_THROTTLE +33%");
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateSetThrottleCommand(selectedId, currentBuoyState.forcedThrottleCmde, 33);
+            rightUpProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (rightY > -JOYSTICK_THRESHOLD / 2) {
+        rightUpProcessed = false;  // Reset
+    }
+    
+    // Joystick DROIT vers le BAS : CMD_SET_THROTTLE (-33%)
+    if (rightY > JOYSTICK_THRESHOLD && !rightDownProcessed) {
+        Logger::log("\n[JS-R] Joystick DROIT vers le BAS - SET_THROTTLE -33%");
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateSetThrottleCommand(selectedId, currentBuoyState.forcedThrottleCmde, -33);
+            rightDownProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (rightY < JOYSTICK_THRESHOLD / 2) {
+        rightDownProcessed = false;  // Reset
+    }
+    
+    // Joystick DROIT vers la DROITE : CMD_SET_TRUE_HEADING (+30°)
+    if (rightX > JOYSTICK_THRESHOLD && !rightRightProcessed) {
+        Logger::log("\n[JS-R] Joystick DROIT vers la DROITE - SET_HEADING +30°");
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateSetHeadingCommand(selectedId, currentBuoyState.forcedTrueHeadingCmde, 30);
+            rightRightProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (rightX < JOYSTICK_THRESHOLD / 2) {
+        rightRightProcessed = false;  // Reset
+    }
+    
+    // Joystick DROIT vers la GAUCHE : CMD_SET_TRUE_HEADING (-30°)
+    if (rightX < -JOYSTICK_THRESHOLD && !rightLeftProcessed) {
+        Logger::log("\n[JS-R] Joystick DROIT vers la GAUCHE - SET_HEADING -30°");
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateSetHeadingCommand(selectedId, currentBuoyState.forcedTrueHeadingCmde, -30);
+            rightLeftProcessed = true;
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
+    } else if (rightX > -JOYSTICK_THRESHOLD / 2) {
+        rightLeftProcessed = false;  // Reset
+    }
+    
+    // Bouton joystick DROIT : CMD_NAV_STOP
     if (joystick.wasButtonPressed(BTN_RIGHT)) {
-        Logger::log("\n[JS-R] Bouton stick joystick DROIT presse");
-        // TODO: Ajouter fonctionnalité (ex: reset heading, return home)
+        Logger::log("\n[JS-R] Bouton stick joystick DROIT presse - NAV_STOP");
+        if (buoyState.isSelectedBuoyConnected()) {
+            cmdManager.generateNavStopCommand(selectedId);
+        } else {
+            Logger::log("   -> Aucune bouee connectee");
+        }
     }
     
     // Lecture du bouton écran Atom S3
