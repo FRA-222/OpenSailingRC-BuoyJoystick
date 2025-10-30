@@ -88,6 +88,23 @@ private:
     uint32_t lastUpdateTime;
     uint8_t currentBrightness;
     
+    // Cache pour éviter le flickering
+    struct DisplayCache {
+        uint8_t buoyId = 255;
+        bool connected = false;
+        tEtatsGeneral generalMode = INIT;
+        tEtatsNav navigationMode = NAV_STOP;
+        bool gpsOk = false;
+        bool headingOk = false;
+        bool yawRateOk = false;
+        float temperature = 0.0f;
+        uint8_t batteryPercent = 0;
+        float distanceToCons = 0.0f;
+        float forcedTrueHeadingCmde = 0.0f;
+        int8_t autoPilotThrottleCmde = 0;
+        bool firstUpdate = true;
+    } cache;
+    
     static const uint32_t UPDATE_INTERVAL = 500;  ///< Update interval in ms
     static const uint8_t DEFAULT_BRIGHTNESS = 128;
     

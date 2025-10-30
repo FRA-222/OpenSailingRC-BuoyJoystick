@@ -352,6 +352,40 @@ bool CommandManager::generateSetHeadingCommand(uint8_t targetBuoyId, float curre
 }
 
 /**
+ * @brief Send heartbeat to all active buoys
+ */
+uint8_t CommandManager::sendHeartbeatToAllBuoys() {
+    uint8_t sentCount = 0;
+    
+    // Récupérer le nombre de bouées enregistrées
+    uint8_t buoyCount = espNowComm.getBuoyCount();
+    
+    Logger::log("📡 Envoi heartbeat à " + String(buoyCount) + " bouées");
+    
+    // Envoyer un heartbeat à chaque bouée
+    for (uint8_t buoyId = 0; buoyId < MAX_BUOYS; buoyId++) {
+        // Vérifier si la bouée est connectée (données récentes)
+        if (espNowComm.isBuoyConnected(buoyId, 30000)) {  // Timeout de 30 secondes
+            Command heartbeatCmd;
+            heartbeatCmd.targetBuoyId = buoyId;
+            heartbeatCmd.type = CMD_HEARTBEAT;
+            heartbeatCmd.heading = 0;
+            heartbeatCmd.throttle = 0;
+            heartbeatCmd.timestamp = millis();
+            
+            if (espNowComm.sendCommand(buoyId, heartbeatCmd)) {
+                sentCount++;
+                Logger::log("  ✓ Heartbeat envoyé à Buoy #" + String(buoyId));
+            } else {
+                Logger::log("  ✗ Échec heartbeat Buoy #" + String(buoyId));
+            }
+        }
+    }
+    
+    return sentCount;
+}
+
+/**
  * @brief Apply deadzone to joystick value
  */
 int16_t CommandManager::applyDeadzone(int16_t value) {

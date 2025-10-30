@@ -26,7 +26,8 @@ enum BuoyCommand {
     CMD_NAV_CAP,            ///< Navigate by heading (cap mode)
     CMD_NAV_HOME,           ///< Navigate to Home position
     CMD_NAV_STOP,           ///< Stop all movements
-    CMD_HOME_VALIDATION     ///< Validate Home position
+    CMD_HOME_VALIDATION,    ///< Validate Home position
+    CMD_HEARTBEAT           ///< Heartbeat to keep connection alive
 };
 
 // Modes globaux de la bouee
@@ -182,6 +183,13 @@ public:
      * @return true if command was sent successfully
      */
     bool generateSetHeadingCommand(uint8_t targetBuoyId, float currentHeading, int16_t increment);
+
+    /**
+     * @brief Send heartbeat to all active buoys
+     * Should be called periodically (every 5 seconds recommended)
+     * @return Number of heartbeats sent successfully
+     */
+    uint8_t sendHeartbeatToAllBuoys();
 
 private:
     ESPNowCommunication& espNowComm;  ///< Reference to ESP-NOW communication

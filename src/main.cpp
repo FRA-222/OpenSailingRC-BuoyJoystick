@@ -37,6 +37,9 @@ CommandManager cmdManager(espNow);
 uint32_t lastLoopTime = 0;
 const uint32_t LOOP_INTERVAL = 100;  // 10Hz
 
+uint32_t lastHeartbeatTime = 0;
+const uint32_t HEARTBEAT_INTERVAL = 5000;  // 5 secondes
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -140,14 +143,11 @@ void loop() {
     // Bouton jaune GAUCHE : Initialisation du HOME
     if (joystick.wasButtonPressed(BTN_LEFT_STICK)) {
         uint8_t selectedId = buoyState.getSelectedBuoyId();
+        Logger::logf("\n[L] Bouton jaune GAUCHE presse - Envoi CMD_INIT_HOME a Bouee #%d", selectedId);
         if (buoyState.isSelectedBuoyConnected()) {
-            Logger::logf("\n[L] Bouton jaune GAUCHE presse - Envoi CMD_INIT_HOME a Bouee #%d", selectedId);
-            
-            // Utilisation de CommandManager pour créer et envoyer la commande
-            if (cmdManager.generateInitHomeCommand(selectedId)) {
-                display.displayBuoySelection(); // Rafraîchit l'affichage
-            }
-        } else {
+            cmdManager.generateInitHomeCommand(selectedId);    
+        }
+        else {
             Logger::log("\n[L] Bouton jaune GAUCHE presse - Aucune bouee connectee");
         }
     }
@@ -327,6 +327,17 @@ void loop() {
     // 3. ENVOI DE COMMANDES (À IMPLÉMENTER)
     // ========================================================================
     // TODO: Implémenter CommandManager et génération de commandes
+    
+    // ========================================================================
+    // 3.5. ENVOI HEARTBEAT PÉRIODIQUE (toutes les 5 secondes)
+    // ========================================================================
+    if (currentTime - lastHeartbeatTime >= HEARTBEAT_INTERVAL) {
+        lastHeartbeatTime = currentTime;
+        uint8_t sentCount = cmdManager.sendHeartbeatToAllBuoys();
+        if (sentCount > 0) {
+            Logger::logf("💓 Heartbeat envoyé à %d bouée(s)", sentCount);
+        }
+    } 
     
     // ========================================================================
     // 4. MISE À JOUR AFFICHAGE

@@ -53,31 +53,67 @@ void DisplayManager::update() {
 }
 
 void DisplayManager::displayMainScreen() {
-    M5.Display.fillScreen(TFT_BLACK);
-    
     BuoyState state = buoyMgr.getSelectedBuoyState();
     uint8_t buoyId = buoyMgr.getSelectedBuoyId();
     bool connected = buoyMgr.isSelectedBuoyConnected();
     
+    // Premier affichage ou changement de bouée : effacer tout l'écran
+    bool forceUpdate = false;
+    if (cache.firstUpdate || cache.buoyId != buoyId) {
+        M5.Display.fillScreen(TFT_BLACK);
+        cache.firstUpdate = false;
+        cache.buoyId = buoyId;
+        cache.connected = !connected;  // Force update
+        forceUpdate = true;
+    }
+    
     // Header avec nom de la bouée (couleur selon connexion)
-    drawHeader(connected);
+    if (cache.connected != connected || forceUpdate) {
+        drawHeader(connected);
+        cache.connected = connected;
+    }
     
     if (connected) {
+        // Calcul batterie pour comparaison
+        uint8_t batteryPercent = (state.remainingCapacity / 3000.0) * 100;
+        if (batteryPercent > 100) batteryPercent = 100;
+        
         // Indicateurs LED des capteurs (ligne 2)
-        drawSensorLEDs(state);
+        if (cache.gpsOk != state.gpsOk || cache.headingOk != state.headingOk || 
+            cache.yawRateOk != state.yawRateOk || forceUpdate) {
+            drawSensorLEDs(state);
+            cache.gpsOk = state.gpsOk;
+            cache.headingOk = state.headingOk;
+            cache.yawRateOk = state.yawRateOk;
+        }
         
         // Température et Batterie (ligne 3)
-        drawTempBattery(state);
+        if (cache.temperature != state.temperature || cache.batteryPercent != batteryPercent || forceUpdate) {
+            drawTempBattery(state);
+            cache.temperature = state.temperature;
+            cache.batteryPercent = batteryPercent;
+        }
         
         // Modes général et navigation (ligne 4-5)
-        drawNavigationState(state);
+        if (cache.generalMode != state.generalMode || cache.navigationMode != state.navigationMode || forceUpdate) {
+            drawNavigationState(state);
+            cache.generalMode = state.generalMode;
+            cache.navigationMode = state.navigationMode;
+        }
         
-        // Distance to consigne et Throttle (ligne 6)
-        drawDistanceThrottle(state);
+        // Distance to consigne, Heading et Throttle (ligne 6)
+        if (cache.distanceToCons != state.distanceToCons || 
+            cache.forcedTrueHeadingCmde != state.forcedTrueHeadingCmde ||
+            cache.autoPilotThrottleCmde != state.autoPilotThrottleCmde || forceUpdate) {
+            drawDistanceThrottle(state);
+            cache.distanceToCons = state.distanceToCons;
+            cache.forcedTrueHeadingCmde = state.forcedTrueHeadingCmde;
+            cache.autoPilotThrottleCmde = state.autoPilotThrottleCmde;
+        }
     } else {
         M5.Display.setTextDatum(MC_DATUM);
         M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
-        M5.Display.setFont(&fonts::Font2);
+        M5.Display.setFont(&fonts::Font4);  // Police plus grande (était Font2)
         M5.Display.drawString("Waiting...", 64, 64);
     }
 }
@@ -86,6 +122,9 @@ void DisplayManager::drawHeader(bool connected) {
     uint8_t buoyId = buoyMgr.getSelectedBuoyId();
     String buoyName = buoyMgr.getBuoyName(buoyId);
     
+    // Effacer la zone du header
+    M5.Display.fillRect(0, 0, 128, 20, TFT_BLACK);
+    
     M5.Display.setTextDatum(TC_DATUM);
     // Couleur verte si connecté, rouge si non connecté
     if (connected) {
@@ -93,106 +132,125 @@ void DisplayManager::drawHeader(bool connected) {
     } else {
         M5.Display.setTextColor(TFT_RED, TFT_BLACK);
     }
-    M5.Display.setFont(&fonts::Font2);
-    M5.Display.drawString(buoyName, 64, 5);
+    M5.Display.setFont(&fonts::Font4);  // Police plus grande (était Font2)
+    M5.Display.drawString(buoyName, 64, 2);
 }
 
 void DisplayManager::drawSensorLEDs(const BuoyState& state) {
     // Ligne 2 : Indicateurs LED des capteurs
-    const int16_t y = 28;  // Position Y sous le header (ajusté de 22 à 28)
-    const int16_t ledRadius = 4;  // Rayon de la LED (augmenté de 3 à 4)
+    const int16_t y = 32;  // Position Y sous le header (ajusté pour Font4)
+    const int16_t ledRadius = 5;  // Rayon de la LED agrandi
     const int16_t spacing = 42;   // Espacement entre les LEDs
+    
+    // Effacer la zone des LEDs
+    M5.Display.fillRect(0, 22, 128, 35, TFT_BLACK);
     
     // Centre de l'écran (128 pixels / 2 = 64)
     // 3 LEDs espacées : GPS, MAG, YAW
     const int16_t startX = 64 - spacing;  // Position de la première LED
     
-    M5.Display.setFont(&fonts::Font0);  // Petite police pour les labels
+    M5.Display.setFont(&fonts::Font2);  // Police plus grande (était Font0)
     M5.Display.setTextDatum(TC_DATUM);
     
     // GPS LED
     int16_t gpsX = startX;
     M5.Display.fillCircle(gpsX, y, ledRadius, state.gpsOk ? TFT_GREEN : TFT_RED);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    M5.Display.drawString("GPS", gpsX, y + 7);
+    M5.Display.drawString("GPS", gpsX, y + 8);
     
     // MAG (Heading) LED
     int16_t magX = startX + spacing;
     M5.Display.fillCircle(magX, y, ledRadius, state.headingOk ? TFT_GREEN : TFT_RED);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    M5.Display.drawString("MAG", magX, y + 7);
+    M5.Display.drawString("MAG", magX, y + 8);
     
     // YAW (YawRate) LED
     int16_t yawX = startX + spacing * 2;
     M5.Display.fillCircle(yawX, y, ledRadius, state.yawRateOk ? TFT_GREEN : TFT_RED);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    M5.Display.drawString("YAW", yawX, y + 7);
+    M5.Display.drawString("YAW", yawX, y + 8);
 }
 
 void DisplayManager::drawTempBattery(const BuoyState& state) {
     // Ligne 3 : Température et % Batterie
-    const int16_t y = 50;
+    const int16_t y = 58;  // Ajusté pour nouvelle position
     
-    M5.Display.setFont(&fonts::Font0);
+    // Effacer la zone température/batterie
+    M5.Display.fillRect(0, 57, 128, 17, TFT_BLACK);
+    
+    M5.Display.setFont(&fonts::Font2);  // Police plus grande (était Font0)
     M5.Display.setTextDatum(TL_DATUM);
     M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
     
     // Température à gauche
     char tempBuffer[16];
     snprintf(tempBuffer, sizeof(tempBuffer), "%.1fC", state.temperature);
-    M5.Display.drawString(tempBuffer, 5, y);
+    M5.Display.drawString(tempBuffer, 2, y);
     
     // Batterie à droite (conversion de mAh en %)
-    uint8_t batteryPercent = (uint8_t)((state.remainingCapacity / 10000.0) * 100);
+    //uint8_t batteryPercent = (uint8_t)((state.remainingCapacity / 10000.0) * 100);
+    uint8_t batteryPercent = (uint8_t)((state.remainingCapacity));
     if (batteryPercent > 100) batteryPercent = 100;
     
     char battBuffer[16];
-    snprintf(battBuffer, sizeof(battBuffer), "Batt:%d%%", batteryPercent);
+    snprintf(battBuffer, sizeof(battBuffer), "%d%%", batteryPercent);
     M5.Display.setTextDatum(TR_DATUM);
-    M5.Display.drawString(battBuffer, 123, y);
+    M5.Display.drawString(battBuffer, 126, y);
 }
 
 void DisplayManager::drawDistanceThrottle(const BuoyState& state) {
-    // Ligne 6 : Distance to consigne et Throttle
-    const int16_t y = 100;
+    // Ligne 6 : Distance, Forced Heading et Throttle
+    const int16_t y = 114;  // Ajusté pour nouvelle position
     
-    M5.Display.setFont(&fonts::Font0);
+    // Effacer la zone distance/heading/throttle
+    M5.Display.fillRect(0, 113, 128, 15, TFT_BLACK);
+    
+    M5.Display.setFont(&fonts::Font2);  // Police plus grande (était Font0)
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     
     // Distance à gauche
     char distBuffer[16];
     M5.Display.setTextDatum(TL_DATUM);
     if (state.distanceToCons < 1000) {
-        snprintf(distBuffer, sizeof(distBuffer), "Dst:%.0fm", state.distanceToCons);
+        snprintf(distBuffer, sizeof(distBuffer), "%.0fm", state.distanceToCons);
     } else {
-        snprintf(distBuffer, sizeof(distBuffer), "Dst:%.1fkm", state.distanceToCons / 1000.0);
+        snprintf(distBuffer, sizeof(distBuffer), "%.1fk", state.distanceToCons / 1000.0);
     }
-    M5.Display.drawString(distBuffer, 5, y);
+    M5.Display.drawString(distBuffer, 2, y);
+    
+    // Forced Heading au centre
+    char headingBuffer[16];
+    snprintf(headingBuffer, sizeof(headingBuffer), "%.0fd", state.forcedTrueHeadingCmde);
+    M5.Display.setTextDatum(TC_DATUM);
+    M5.Display.drawString(headingBuffer, 64, y);
     
     // Throttle à droite
     char throttleBuffer[16];
-    snprintf(throttleBuffer, sizeof(throttleBuffer), "Thr:%d%%", state.autoPilotThrottleCmde);
+    snprintf(throttleBuffer, sizeof(throttleBuffer), "%d%%", state.autoPilotThrottleCmde);
     M5.Display.setTextDatum(TR_DATUM);
-    M5.Display.drawString(throttleBuffer, 123, y);
+    M5.Display.drawString(throttleBuffer, 126, y);
 }
 
 void DisplayManager::drawNavigationState(const BuoyState& state) {
+    // Effacer la zone des modes
+    M5.Display.fillRect(0, 74, 128, 36, TFT_BLACK);
+    
     // Mode général (ligne 4)
     String generalModeName = buoyMgr.getGeneralModeName(state.generalMode);
     uint16_t generalColor = getGeneralModeColor(state.generalMode);
     
     M5.Display.setTextDatum(MC_DATUM);
     M5.Display.setTextColor(generalColor, TFT_BLACK);
-    M5.Display.setFont(&fonts::Font2);
-    M5.Display.drawString(generalModeName, 64, 68);  // Ajusté pour ligne 4
+    M5.Display.setFont(&fonts::Font2);  // Police moyenne
+    M5.Display.drawString(generalModeName, 64, 80);  // Descendu de 2 pixels (76 → 78)
     
-    // Mode de navigation (ligne 5, plus petit)
+    // Mode de navigation (ligne 5, plus grand pour meilleure visibilité)
     String navModeName = buoyMgr.getNavModeName(state.navigationMode);
     uint16_t navModeColor = getNavModeColor(state.navigationMode);
     
     M5.Display.setTextColor(navModeColor, TFT_BLACK);
-    M5.Display.setFont(&fonts::Font0);
-    M5.Display.drawString("Nav: " + navModeName, 64, 85);  // Ajusté pour ligne 5
+    M5.Display.setFont(&fonts::Font4);  // Police plus grande pour NavigationMode
+    M5.Display.drawString(navModeName, 64, 100);  // Descendu de 2 pixels (96 → 98)
 }
 
 void DisplayManager::drawHeadingSpeed(float heading, float speed) {
