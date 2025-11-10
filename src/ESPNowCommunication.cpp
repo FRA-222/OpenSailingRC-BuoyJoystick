@@ -30,6 +30,11 @@ bool ESPNowCommunication::begin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     
+    // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
+    // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    Logger::log("✓ ESP-NOW: Puissance TX réglée à 19.5 dBm");
+    
     // Obtient et affiche l'adresse MAC locale
     WiFi.macAddress(localMac);
     Logger::print("✓ ESP-NOW: Adresse MAC locale: ");
