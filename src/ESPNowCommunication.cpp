@@ -7,6 +7,7 @@
 
 #include "ESPNowCommunication.h"
 #include "Logger.h"
+#include "DisplayManager.h"
 
 // Instance statique pour les callbacks
 ESPNowCommunication* ESPNowCommunication::instance = nullptr;
@@ -23,6 +24,16 @@ ESPNowCommunication::ESPNowCommunication() {
         buoys[i].lastState.buoyId = i;
         buoys[i].lastState.timestamp = 0;
     }
+    
+    // Initialize command retry mechanism
+    pendingCommandCount = 0;
+    for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+        pendingCommands[i].ackReceived = true;  // Mark as completed initially
+        pendingCommands[i].retryCount = 0;
+    }
+    
+    // Initialize display manager pointer
+    displayManager = nullptr;
 }
 
 bool ESPNowCommunication::begin() {
@@ -30,10 +41,10 @@ bool ESPNowCommunication::begin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     
-    // Augmente la puissance TX WiFi pour améliorer la portée ESP-NOW
-    // 19.5 dBm offre un bon compromis portée/consommation (+50-100m de portée)
+    // Configure la puissance TX WiFi au maximum pour portée maximale ESP-NOW
+    // WIFI_POWER_19_5dBm = puissance maximale ESP32 (19.5 dBm / ~90 mW)
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
-    Logger::log("✓ ESP-NOW: Puissance TX réglée à 19.5 dBm");
+    Logger::log("✓ ESP-NOW: Puissance TX réglée au MAXIMUM (19.5 dBm)");
     
     // Obtient et affiche l'adresse MAC locale
     WiFi.macAddress(localMac);
@@ -57,6 +68,11 @@ bool ESPNowCommunication::begin() {
     esp_now_register_send_cb(onDataSent);
     
     return true;
+}
+
+void ESPNowCommunication::update() {
+    // ESP-NOW is event-driven via callbacks, no polling needed
+    // This function is kept empty but required by ICommunication interface
 }
 
 bool ESPNowCommunication::addBuoy(uint8_t buoyId, const uint8_t* macAddress) {
@@ -140,30 +156,28 @@ bool ESPNowCommunication::sendCommand(uint8_t buoyId, const Command& cmd) {
     CommandPacket packet;
     packet.targetBuoyId = cmd.targetBuoyId;
     packet.command = cmd.type;
-    packet.heading = cmd.heading;
-    packet.throttle = cmd.throttle;
     packet.timestamp = cmd.timestamp;
     
     // Envoie via ESP-NOW
-    esp_err_t result = esp_now_send(
-        buoys[index].macAddress,
-        (uint8_t*)&packet,
-        sizeof(CommandPacket)
-    );
+    bool sent = sendCommandPacket(packet);
     
-    if (result == ESP_OK) {
-        Logger::logf("→ Commande envoyée à Bouée #%d (type=%d)", buoyId, cmd.type);
-        Logger::log("Tentative d'envoi à MAC: ");
-        for (int i = 0; i < 6; i++) {
-            Logger::printf("%02X", buoys[index].macAddress[i]);
-            if (i < 5) Logger::print(":");
+    if (sent) {
+        // Add to pending commands queue (except for heartbeat)
+        if (cmd.type != CMD_HEARTBEAT) {
+            if (addPendingCommand(packet)) {
+                Logger::logf("✓ ESP-NOW: Commande ajoutée à la queue (en attente d'ACK)");
+                // Notifier le display : commande envoyée (Bleu)
+                if (displayManager != nullptr) {
+                    displayManager->setCommandStatus(CommandStatus::SENDING);
+                }
+            } else {
+                Logger::log("⚠️  ESP-NOW: Queue pleine, commande envoyée sans attente d'ACK");
+            }
         }
-        Logger::log();
         return true;
-    } else {
-        Logger::logf("✗ ESP-NOW: Échec envoi à Bouée #%d (err=%d)", buoyId, result);
-        return false;
     }
+    
+    return false;
 }
 
 BuoyState ESPNowCommunication::getLastBuoyState() {
@@ -199,7 +213,7 @@ void ESPNowCommunication::clearNewData() {
     newDataAvailable = false;
 }
 
-uint8_t ESPNowCommunication::getBuoyCount() {
+uint8_t ESPNowCommunication::getBuoyCount() const {
     return buoyCount;
 }
 
@@ -221,7 +235,7 @@ const uint8_t* ESPNowCommunication::getLocalMacAddress() {
     return localMac;
 }
 
-uint8_t ESPNowCommunication::removeInactiveBuoys(uint32_t timeoutMs) {
+void ESPNowCommunication::removeInactiveBuoys(uint32_t timeoutMs) {
     uint8_t removedCount = 0;
     uint32_t now = millis();
     
@@ -255,8 +269,6 @@ uint8_t ESPNowCommunication::removeInactiveBuoys(uint32_t timeoutMs) {
         Logger::logf("🧹 ESP-NOW: %d bouée(s) inactive(s) supprimée(s) (total restant: %d)", 
                      removedCount, buoyCount);
     }
-    
-    return removedCount;
 }
 
 // Callback statique pour réception de données
@@ -277,9 +289,19 @@ void ESPNowCommunication::onDataSent(const uint8_t* mac, esp_now_send_status_t s
 
 // Traite les données reçues
 void ESPNowCommunication::handleReceivedData(const uint8_t* mac, const uint8_t* data, int len) {
-    // Vérifie la taille des données
+    // Vérifie si c'est un ACK avec état (enriched ACK)
+    if (len == sizeof(AckWithStatePacket)) {
+        AckWithStatePacket ack;
+        memcpy(&ack, data, sizeof(AckWithStatePacket));
+        Logger::logf("📥 ACK+State reçu de Bouée #%d (cmd=%d)", ack.buoyId, ack.commandType);
+        processAck(ack);
+        return;
+    }
+    
+    // Vérifie la taille des données pour BuoyState
     if (len != sizeof(BuoyState)) {
-        Logger::logf("✗ ESP-NOW: Taille invalide reçue %d (attendu %d)", len, sizeof(BuoyState));
+        Logger::logf("✗ ESP-NOW: Taille invalide reçue %d (attendu %d ou %d)", 
+                     len, sizeof(BuoyState), sizeof(AckWithStatePacket));
         return;
     }
     
@@ -340,4 +362,203 @@ int8_t ESPNowCommunication::findBuoyByMac(const uint8_t* mac) {
         }
     }
     return -1;
+}
+
+// ICommunication interface implementation
+
+BuoyInfo* ESPNowCommunication::getBuoyInfo(uint8_t buoyId) {
+    int8_t index = findBuoyIndex(buoyId);
+    if (index >= 0) {
+        // Cast BuoyPeer to BuoyInfo (compatible structure)
+        return reinterpret_cast<BuoyInfo*>(&buoys[index]);
+    }
+    return nullptr;
+}
+
+BuoyInfo* ESPNowCommunication::getAllBuoys() {
+    return reinterpret_cast<BuoyInfo*>(buoys);
+}
+
+int16_t ESPNowCommunication::getLastRssi() const {
+    // ESP-NOW doesn't provide RSSI directly
+    return 0;
+}
+
+float ESPNowCommunication::getLastSnr() const {
+    // ESP-NOW doesn't provide SNR
+    return 0.0f;
+}
+
+const char* ESPNowCommunication::getModeName() const {
+    return "ESP-NOW";
+}
+
+/**
+ * @brief Send command packet via ESP-NOW
+ */
+bool ESPNowCommunication::sendCommandPacket(const CommandPacket& packet) {
+    int8_t index = findBuoyIndex(packet.targetBuoyId);
+    if (index < 0) {
+        Logger::logf("✗ ESP-NOW: Bouée #%d non trouvée", packet.targetBuoyId);
+        return false;
+    }
+    
+    // Envoie via ESP-NOW
+    esp_err_t result = esp_now_send(
+        buoys[index].macAddress,
+        (uint8_t*)&packet,
+        sizeof(CommandPacket)
+    );
+    
+    if (result == ESP_OK) {
+        Logger::logf("→ Commande envoyée à Bouée #%d (type=%d)", packet.targetBuoyId, packet.command);
+        return true;
+    } else {
+        Logger::logf("✗ ESP-NOW: Échec envoi à Bouée #%d (err=%d)", packet.targetBuoyId, result);
+        return false;
+    }
+}
+
+/**
+ * @brief Add command to pending queue
+ */
+bool ESPNowCommunication::addPendingCommand(const CommandPacket& command) {
+    // Find a free slot or replace oldest completed command
+    int8_t freeSlot = -1;
+    
+    for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+        if (pendingCommands[i].ackReceived) {
+            freeSlot = i;
+            break;
+        }
+    }
+    
+    if (freeSlot < 0) {
+        Logger::log("⚠️  ESP-NOW: Queue de commandes pleine");
+        return false;
+    }
+    
+    // Add command to queue
+    pendingCommands[freeSlot].command = command;
+    pendingCommands[freeSlot].sentTime = millis();
+    pendingCommands[freeSlot].retryCount = 0;
+    pendingCommands[freeSlot].ackReceived = false;
+    
+    pendingCommandCount++;
+    
+    return true;
+}
+
+/**
+ * @brief Process ACK with buoy state packet
+ */
+void ESPNowCommunication::processAck(const AckWithStatePacket& ack) {
+    Logger::logf("✅ ACK+State reçu de Bouée #%d pour commande type=%d (ts=%lu)", 
+                 ack.buoyId, ack.commandType, ack.commandTimestamp);
+    
+    // Find matching pending command
+    for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+        if (!pendingCommands[i].ackReceived &&
+            pendingCommands[i].command.targetBuoyId == ack.buoyId &&
+            pendingCommands[i].command.timestamp == ack.commandTimestamp &&
+            pendingCommands[i].command.command == (BuoyCommand)ack.commandType) {
+            
+            // Mark as acknowledged
+            pendingCommands[i].ackReceived = true;
+            pendingCommandCount--;
+            
+            Logger::logf("   ✓ Commande confirmée (retry=%d)", pendingCommands[i].retryCount);
+            
+            // Notifier le display : ACK reçu (Vert)
+            if (displayManager != nullptr) {
+                displayManager->setCommandStatus(CommandStatus::ACK_RECEIVED);
+            }
+            break;
+        }
+    }
+    
+    // Update BuoyState from ACK data - immediate display refresh
+    int8_t index = findBuoyIndex(ack.buoyId);
+    if (index < 0) {
+        // Bouée inconnue - ne peut pas mettre à jour l'état
+        Logger::logf("   ⚠️  ACK de Bouée #%d non enregistrée", ack.buoyId);
+        return;
+    }
+    
+    // Copy state data from ACK into stored BuoyState
+    BuoyState& state = buoys[index].lastState;
+    state.buoyId = ack.buoyId;
+    state.timestamp = millis();  // Use current time as update time
+    state.generalMode = (tEtatsGeneral)ack.generalMode;
+    state.navigationMode = (tEtatsNav)ack.navigationMode;
+    state.gpsOk = ack.gpsOk;
+    state.headingOk = ack.headingOk;
+    state.yawRateOk = ack.yawRateOk;
+    state.temperature = ack.temperature;
+    state.remainingCapacity = ack.remainingCapacity;
+    state.distanceToCons = ack.distanceToCons;
+    state.autoPilotThrottleCmde = ack.autoPilotThrottleCmde;
+    state.autoPilotTrueHeadingCmde = ack.autoPilotTrueHeadingCmde;
+    
+    // Signal new data available for immediate display update
+    newDataAvailable = true;
+    
+    // Force immediate display refresh so the user sees the updated state right away
+    if (displayManager != nullptr) {
+        displayManager->forceRefresh();
+    }
+    
+    Logger::logf("   ✓ État Bouée #%d mis à jour depuis ACK (genMode=%d, navMode=%d, throttle=%d)",
+                 ack.buoyId, ack.generalMode, ack.navigationMode, ack.autoPilotThrottleCmde);
+}
+
+/**
+ * @brief Process command retries
+ */
+void ESPNowCommunication::processCommandRetries() {
+    uint32_t currentTime = millis();
+    
+    for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+        if (pendingCommands[i].ackReceived) {
+            continue;  // Already acknowledged
+        }
+        
+        uint32_t elapsedTime = currentTime - pendingCommands[i].sentTime;
+        
+        // Check if ACK timeout
+        if (elapsedTime >= ACK_TIMEOUT_MS) {
+            if (pendingCommands[i].retryCount >= MAX_RETRY_COUNT) {
+                // Max retries reached, give up
+                Logger::logf("❌ ESP-NOW: Commande timeout après %d tentatives (Bouée #%d, type=%d)", 
+                             MAX_RETRY_COUNT + 1,
+                             pendingCommands[i].command.targetBuoyId,
+                             pendingCommands[i].command.command);
+                
+                // Notifier le display : timeout (Rouge)
+                if (displayManager != nullptr) {
+                    displayManager->setCommandStatus(CommandStatus::TIMEOUT);
+                }
+                
+                // Mark as completed (failed)
+                pendingCommands[i].ackReceived = true;
+                pendingCommandCount--;
+            } else {
+                // Retry command
+                pendingCommands[i].retryCount++;
+                pendingCommands[i].sentTime = currentTime;
+                
+                Logger::logf("🔄 ESP-NOW: Renvoi commande (tentative %d/%d) à Bouée #%d", 
+                             pendingCommands[i].retryCount + 1,
+                             MAX_RETRY_COUNT + 1,
+                             pendingCommands[i].command.targetBuoyId);
+                
+                sendCommandPacket(pendingCommands[i].command);
+            }
+        }
+    }
+}
+
+void ESPNowCommunication::setDisplayManager(DisplayManager* display) {
+    displayManager = display;
+    Logger::log("✓ ESP-NOW: DisplayManager attaché pour feedback visuel");
 }

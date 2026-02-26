@@ -6,16 +6,22 @@
  */
 
 #include "BuoyStateManager.h"
+#include "DisplayManager.h"
 #include "Logger.h"
 
-BuoyStateManager::BuoyStateManager(ESPNowCommunication& espNow) 
-    : espNowComm(espNow) {
+BuoyStateManager::BuoyStateManager(ICommunication& comm) 
+    : comm(comm), displayMgr(nullptr) {
     selectedBuoyId = 0;
     lastUpdateTime = 0;
+    lastConnectedBuoyId = 255;
 }
 
 void BuoyStateManager::begin() {
     Logger::log("✓ BuoyStateManager: Initialisé");
+}
+
+void BuoyStateManager::setDisplayManager(DisplayManager* display) {
+    displayMgr = display;
 }
 
 void BuoyStateManager::update() {
@@ -25,61 +31,66 @@ void BuoyStateManager::update() {
         lastUpdateTime = currentTime;
         
         // Vérifie si de nouvelles données sont disponibles
-        if (espNowComm.hasNewData()) {
-            espNowComm.clearNewData();
+        if (comm.hasNewData()) {
+            comm.clearNewData();
             // Les données sont déjà traitées dans ESPNowCommunication
+        }
+        
+        // Si aucune bouée n'est connectée actuellement mais qu'il y a des bouées enregistrées,
+        // essayer de sélectionner la première bouée disponible
+        uint8_t connectedCount = 0;
+        for (uint8_t i = 0; i < MAX_BUOYS; i++) {
+            if (comm.isBuoyConnected(i)) {
+                connectedCount++;
+            }
+        }
+        
+        if (connectedCount > 0 && !comm.isBuoyConnected(selectedBuoyId)) {
+            // La bouée actuellement sélectionnée n'est pas connectée,
+            // mais il y a d'autres bouées connectées - sélectionner la première disponible
+            for (uint8_t i = 0; i < MAX_BUOYS; i++) {
+                if (comm.isBuoyConnected(i)) {
+                    selectedBuoyId = i;
+                    Logger::logf("→ Auto-sélection bouée: #%d", selectedBuoyId);
+                    
+                    // Si c'est une nouvelle connexion (bouée était déconnectée), rafraîchir l'affichage
+                    if (lastConnectedBuoyId != i && displayMgr != nullptr) {
+                        Logger::log("🔄 Rafraîchissement écran - Bouée reconnectée");
+                        displayMgr->forceRefresh();
+                    }
+                    lastConnectedBuoyId = i;
+                    break;
+                }
+            }
+        }
+        
+        // Mise à jour du statut de connexion pour détecter les reconnexions
+        if (comm.isBuoyConnected(selectedBuoyId) && lastConnectedBuoyId != selectedBuoyId) {
+            lastConnectedBuoyId = selectedBuoyId;
+            if (displayMgr != nullptr) {
+                Logger::log("🔄 Rafraîchissement écran - Bouée reconnectée");
+                displayMgr->forceRefresh();
+            }
+        } else if (!comm.isBuoyConnected(selectedBuoyId) && lastConnectedBuoyId == selectedBuoyId) {
+            lastConnectedBuoyId = 255;  // Marquer comme déconnectée
         }
     }
 }
 
 void BuoyStateManager::selectNextBuoy() {
-    uint8_t startId = selectedBuoyId;
-    uint8_t count = espNowComm.getBuoyCount();
-    
-    if (count == 0) {
-        Logger::log("⚠ BuoyStateManager: Aucune bouée enregistrée");
-        return;
-    }
-    
-    // Cherche la prochaine bouée enregistrée
-    do {
-        selectedBuoyId = (selectedBuoyId + 1) % MAX_BUOYS;
-        
-        // Vérifie si cette bouée existe
-        BuoyState state = espNowComm.getBuoyState(selectedBuoyId);
-        if (state.buoyId == selectedBuoyId) {
-            Logger::logf("→ Bouée sélectionnée: #%d", selectedBuoyId);
-            return;
-        }
-        
-    } while (selectedBuoyId != startId);
+    // Cycle simple entre bouées 0-5 (pas de vérification de connexion)
+    selectedBuoyId = (selectedBuoyId + 1) % MAX_BUOYS;
+    Logger::logf("→ Bouée sélectionnée: #%d", selectedBuoyId);
 }
 
 void BuoyStateManager::selectPreviousBuoy() {
-    uint8_t startId = selectedBuoyId;
-    uint8_t count = espNowComm.getBuoyCount();
-    
-    if (count == 0) {
-        Logger::log("⚠ BuoyStateManager: Aucune bouée enregistrée");
-        return;
+    // Cycle simple entre bouées 0-5 en arrière (pas de vérification de connexion)
+    if (selectedBuoyId == 0) {
+        selectedBuoyId = MAX_BUOYS - 1;
+    } else {
+        selectedBuoyId--;
     }
-    
-    // Cherche la bouée précédente enregistrée
-    do {
-        if (selectedBuoyId == 0) {
-            selectedBuoyId = MAX_BUOYS - 1;
-        } else {
-            selectedBuoyId--;
-        }
-        
-        // Vérifie si cette bouée existe
-        BuoyState state = espNowComm.getBuoyState(selectedBuoyId);
-        if (state.buoyId == selectedBuoyId) {
-            Logger::logf("← Bouée sélectionnée: #%d", selectedBuoyId);
-            return;
-        }
-        
-    } while (selectedBuoyId != startId);
+    Logger::logf("→ Bouée sélectionnée: #%d", selectedBuoyId);
 }
 
 void BuoyStateManager::selectBuoy(uint8_t buoyId) {
@@ -94,13 +105,13 @@ uint8_t BuoyStateManager::getSelectedBuoyId() {
 }
 
 BuoyState BuoyStateManager::getSelectedBuoyState() {
-    return espNowComm.getBuoyState(selectedBuoyId);
+    return comm.getBuoyState(selectedBuoyId);
 }
 
 uint8_t BuoyStateManager::getConnectedBuoyCount() {
     uint8_t count = 0;
     for (uint8_t i = 0; i < MAX_BUOYS; i++) {
-        if (espNowComm.isBuoyConnected(i)) {
+        if (comm.isBuoyConnected(i)) {
             count++;
         }
     }
@@ -108,7 +119,7 @@ uint8_t BuoyStateManager::getConnectedBuoyCount() {
 }
 
 bool BuoyStateManager::isSelectedBuoyConnected() {
-    return espNowComm.isBuoyConnected(selectedBuoyId);
+    return comm.isBuoyConnected(selectedBuoyId);
 }
 
 String BuoyStateManager::getBuoyName(uint8_t buoyId) {

@@ -12,7 +12,10 @@
 #define BUOY_STATE_MANAGER_H
 
 #include <Arduino.h>
-#include "ESPNowCommunication.h"
+#include "ICommunication.h"
+
+// Forward declaration
+class DisplayManager;
 
 /**
  * @brief Class to manage buoy states
@@ -21,9 +24,9 @@ class BuoyStateManager {
 public:
     /**
      * @brief Constructor
-     * @param espNow Reference to ESPNowCommunication instance
+     * @param comm Reference to ICommunication instance
      */
-    BuoyStateManager(ESPNowCommunication& espNow);
+    BuoyStateManager(ICommunication& comm);
 
     /**
      * @brief Initialize the manager
@@ -37,6 +40,12 @@ public:
      * from buoys and update connection status.
      */
     void update();
+
+    /**
+     * @brief Set the display manager
+     * @param display Pointer to DisplayManager instance
+     */
+    void setDisplayManager(DisplayManager* display);
 
     /**
      * @brief Select the next buoy
@@ -103,9 +112,22 @@ public:
      */
     String getGeneralModeName(tEtatsGeneral mode);
 
+    /**
+     * @brief Check if new communication data is available
+     * @return true if new data has been received
+     */
+    bool hasNewData() { return comm.hasNewData(); }
+
+    /**
+     * @brief Clear the new data flag
+     */
+    void clearNewData() { comm.clearNewData(); }
+
 private:
-    ESPNowCommunication& espNowComm;
+    ICommunication& comm;
+    DisplayManager* displayMgr;
     uint8_t selectedBuoyId;
+    uint8_t lastConnectedBuoyId;
     uint32_t lastUpdateTime;
     
     static const uint32_t UPDATE_INTERVAL = 100;  ///< Update interval in ms

@@ -11,47 +11,28 @@
 #define COMMAND_MANAGER_H
 
 #include <Arduino.h>
+#include "BuoyEnums.h"
 
 // Forward declaration
-class ESPNowCommunication;
+class ICommunication;
 
 /**
  * @brief Command types sent to buoys
+ * IMPORTANT: uint8_t to ensure 1 byte size
  */
-enum BuoyCommand {
-    CMD_INIT_HOME = 0,      ///< Initialize Home with current GPS position
-    CMD_SET_TRUE_HEADING,   ///< Set target true heading
-    CMD_SET_THROTTLE,       ///< Set speed
-    CMD_NAV_HOLD,           ///< Hold current position
-    CMD_NAV_CAP,            ///< Navigate by heading (cap mode)
-    CMD_NAV_HOME,           ///< Navigate to Home position
-    CMD_NAV_STOP,           ///< Stop all movements
-    CMD_HOME_VALIDATION,    ///< Validate Home position
-    CMD_HEARTBEAT           ///< Heartbeat to keep connection alive
+enum BuoyCommand : uint8_t {
+    CMD_INIT_HOME = 0,        ///< Initialize Home with current GPS position
+    CMD_THROTTLE_INCREASE,    ///< Increase throttle (buoy decides increment)
+    CMD_THROTTLE_DECREASE,    ///< Decrease throttle (buoy decides increment)
+    CMD_HEADING_INCREASE,     ///< Increase heading (buoy decides increment)
+    CMD_HEADING_DECREASE,     ///< Decrease heading (buoy decides increment)
+    CMD_NAV_HOLD,             ///< Hold current position
+    CMD_NAV_CAP,              ///< Navigate by heading (cap mode)
+    CMD_NAV_HOME,             ///< Navigate to Home position
+    CMD_NAV_STOP,             ///< Stop all movements
+    CMD_HOME_VALIDATION,      ///< Validate Home position
+    CMD_HEARTBEAT             ///< Heartbeat to keep connection alive
 };
-
-// Modes globaux de la bouee
-enum tEtatsGeneral
-{
-    INIT = 0,
-    READY,
-    MAINTENANCE,
-    HOME_DEFINITION, 
-    NAV
-}; 
-
-// Modes de navigation de la bouee
-enum tEtatsNav
-{
-    NAV_NOTHING = 0, 
-    NAV_HOME,    
-    NAV_HOLD,
-    NAV_STOP,
-    NAV_BASIC,
-    NAV_CAP,
-    NAV_TARGET
-}; 
-
 
 /**
  * @brief Complete command structure
@@ -59,8 +40,6 @@ enum tEtatsNav
 struct Command {
     uint8_t targetBuoyId;   ///< Target buoy ID
     BuoyCommand type;       ///< Command type
-    int16_t heading;        ///< Target heading (-180 to +180 degrees)
-    int8_t throttle;        ///< Speed (-100 to +100%)
     uint32_t timestamp;     ///< Command timestamp
 };
 
@@ -71,9 +50,9 @@ class CommandManager {
 public:
     /**
      * @brief Constructor
-     * @param espNowComm Reference to ESP-NOW communication instance
+     * @param comm Reference to ICommunication instance
      */
-    CommandManager(ESPNowCommunication& espNowComm);
+    CommandManager(ICommunication& comm);
 
     /**
      * @brief Update commands based on joystick inputs
@@ -167,22 +146,32 @@ public:
     bool generateNavStopCommand(uint8_t targetBuoyId);
 
     /**
-     * @brief Generate and send SET_THROTTLE command with increment to a buoy
+     * @brief Generate and send THROTTLE_INCREASE command to a buoy
      * @param targetBuoyId ID of the buoy to send the command to
-     * @param currentThrottle Current throttle value from buoy state
-     * @param increment Throttle increment (positive or negative)
      * @return true if command was sent successfully
      */
-    bool generateSetThrottleCommand(uint8_t targetBuoyId, int8_t currentThrottle, int8_t increment);
+    bool generateThrottleIncreaseCommand(uint8_t targetBuoyId);
 
     /**
-     * @brief Generate and send SET_TRUE_HEADING command with increment to a buoy
+     * @brief Generate and send THROTTLE_DECREASE command to a buoy
      * @param targetBuoyId ID of the buoy to send the command to
-     * @param currentHeading Current heading value from buoy state (degrees)
-     * @param increment Heading increment in degrees (positive or negative)
      * @return true if command was sent successfully
      */
-    bool generateSetHeadingCommand(uint8_t targetBuoyId, float currentHeading, int16_t increment);
+    bool generateThrottleDecreaseCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send HEADING_INCREASE command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateHeadingIncreaseCommand(uint8_t targetBuoyId);
+
+    /**
+     * @brief Generate and send HEADING_DECREASE command to a buoy
+     * @param targetBuoyId ID of the buoy to send the command to
+     * @return true if command was sent successfully
+     */
+    bool generateHeadingDecreaseCommand(uint8_t targetBuoyId);
 
     /**
      * @brief Send heartbeat to all active buoys
@@ -190,9 +179,16 @@ public:
      * @return Number of heartbeats sent successfully
      */
     uint8_t sendHeartbeatToAllBuoys();
+    
+    /**
+     * @brief Generate and send HEARTBEAT command to a specific buoy
+     * @param targetBuoyId ID of the buoy to send the heartbeat to
+     * @return true if command was sent successfully
+     */
+    bool generateHeartbeatCommand(uint8_t targetBuoyId);
 
 private:
-    ESPNowCommunication& espNowComm;  ///< Reference to ESP-NOW communication
+    ICommunication& comm;  ///< Reference to communication interface
     
     Command currentCommand;
     bool newCommandAvailable;

@@ -20,6 +20,16 @@
 #include "CommandManager.h"
 
 /**
+ * @brief Command status for visual feedback
+ */
+enum class CommandStatus {
+    IDLE,          ///< No command pending
+    SENDING,       ///< Command sent, waiting for ACK (Blue)
+    ACK_RECEIVED,  ///< ACK received (Green)
+    TIMEOUT        ///< No ACK after max retries (Red)
+};
+
+/**
  * @brief Class to manage the display
  */
 class DisplayManager {
@@ -71,6 +81,13 @@ public:
     void displayBuoySelection();
 
     /**
+     * @brief Force refresh of the display
+     * 
+     * Clears the cache and forces a complete redraw on next update.
+     */
+    void forceRefresh();
+
+    /**
      * @brief Enable/disable the display
      * @param enabled true to enable
      */
@@ -81,12 +98,29 @@ public:
      * @param brightness Brightness level (0-255)
      */
     void setBrightness(uint8_t brightness);
+    
+    /**
+     * @brief Set command status for visual feedback
+     * @param status Command status (IDLE, SENDING, ACK_RECEIVED, TIMEOUT)
+     * 
+     * Updates the header color based on command status:
+     * - SENDING: Blue (waiting for ACK)
+     * - ACK_RECEIVED: Green (command confirmed)
+     * - TIMEOUT: Red (no ACK after retries)
+     * - IDLE: Normal color
+     */
+    void setCommandStatus(CommandStatus status);
 
 private:
     BuoyStateManager& buoyMgr;
     bool displayEnabled;
     uint32_t lastUpdateTime;
     uint8_t currentBrightness;
+    
+    // Command status for visual feedback
+    CommandStatus commandStatus;
+    uint32_t commandStatusTime;  ///< Time when status was last changed
+    static const uint32_t STATUS_DISPLAY_DURATION = 3000;  ///< Display status for 3 seconds
     
     // Cache pour éviter le flickering
     struct DisplayCache {
@@ -97,10 +131,10 @@ private:
         bool gpsOk = false;
         bool headingOk = false;
         bool yawRateOk = false;
-        float temperature = 0.0f;
+        uint8_t temperature = 0;
         uint8_t batteryPercent = 0;
-        float distanceToCons = 0.0f;
-        float forcedTrueHeadingCmde = 0.0f;
+        uint8_t distanceToCons = 0;
+        int16_t autoPilotTrueHeadingCmde = 0;
         int8_t autoPilotThrottleCmde = 0;
         bool firstUpdate = true;
     } cache;
@@ -124,6 +158,14 @@ private:
      * Green = OK, Red = KO.
      */
     void drawSensorLEDs(const BuoyState& state);
+    
+    /**
+     * @brief Convertit les couleurs RGB565 pour compenser la permutation de l'écran AtomS3
+     * L'écran fait une rotation circulaire: R→G, G→B, B→R
+     * @param rgb565 Couleur RGB565 normale
+     * @return Couleur RGB565 compensée
+     */
+    uint16_t swapColorChannels(uint16_t rgb565);
 
     /**
      * @brief Draw temperature and battery percentage

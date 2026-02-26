@@ -6,15 +6,15 @@
  */
 
 #include "CommandManager.h"
-#include "ESPNowCommunication.h"
+#include "ICommunication.h"
 #include "Logger.h"
 
 /**
  * @brief Constructor
- * @param espNowComm Reference to ESP-NOW communication instance
+ * @param comm Reference to communication instance
  */
-CommandManager::CommandManager(ESPNowCommunication& espNowComm)
-    : espNowComm(espNowComm),
+CommandManager::CommandManager(ICommunication& comm)
+    : comm(comm),
       newCommandAvailable(false),
       currentHeading(0),
       currentThrottle(0),
@@ -86,8 +86,6 @@ bool CommandManager::generateInitHomeCommand(uint8_t targetBuoyId) {
     Command homeCmd;
     homeCmd.targetBuoyId = targetBuoyId;
     homeCmd.type = CMD_INIT_HOME;
-    homeCmd.heading = 0;        // Non utilisé pour cette commande
-    homeCmd.throttle = 0;       // Non utilisé pour cette commande
     homeCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -95,7 +93,7 @@ bool CommandManager::generateInitHomeCommand(uint8_t targetBuoyId) {
     newCommandAvailable = true;
     
     // Envoi de la commande via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, homeCmd);
+    bool success = comm.sendCommand(targetBuoyId, homeCmd);
     
     if (success) {
         Logger::log("   -> Commande HOME envoyee avec succes");
@@ -116,8 +114,6 @@ bool CommandManager::generateHomeValidationCommand(uint8_t targetBuoyId) {
     Command validationCmd;
     validationCmd.targetBuoyId = targetBuoyId;
     validationCmd.type = CMD_HOME_VALIDATION;
-    validationCmd.heading = 0;          // Non utilisé pour cette commande
-    validationCmd.throttle = 0;         // Non utilisé pour cette commande
     validationCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -128,7 +124,7 @@ bool CommandManager::generateHomeValidationCommand(uint8_t targetBuoyId) {
     Logger::logf("   -> Target Buoy: #%d", targetBuoyId);
     
     // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, validationCmd);
+    bool success = comm.sendCommand(targetBuoyId, validationCmd);
     
     if (success) {
         Logger::log("   -> Commande HOME_VALIDATION envoyee avec succes");
@@ -149,8 +145,6 @@ bool CommandManager::generateNavCapCommand(uint8_t targetBuoyId) {
     Command navCapCmd;
     navCapCmd.targetBuoyId = targetBuoyId;
     navCapCmd.type = CMD_NAV_CAP;
-    navCapCmd.heading = 0;          // Non utilisé pour cette commande
-    navCapCmd.throttle = 0;         // Non utilisé pour cette commande
     navCapCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -161,7 +155,7 @@ bool CommandManager::generateNavCapCommand(uint8_t targetBuoyId) {
     Logger::logf("   -> Target Buoy: #%d", targetBuoyId);
     
     // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, navCapCmd);
+    bool success = comm.sendCommand(targetBuoyId, navCapCmd);
     
     if (success) {
         Logger::log("   -> Commande NAV_CAP envoyee avec succes");
@@ -182,8 +176,6 @@ bool CommandManager::generateNavHomeCommand(uint8_t targetBuoyId) {
     Command navHomeCmd;
     navHomeCmd.targetBuoyId = targetBuoyId;
     navHomeCmd.type = CMD_NAV_HOME;
-    navHomeCmd.heading = 0;         // Non utilisé pour cette commande
-    navHomeCmd.throttle = 0;        // Non utilisé pour cette commande
     navHomeCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -194,7 +186,7 @@ bool CommandManager::generateNavHomeCommand(uint8_t targetBuoyId) {
     Logger::logf("   -> Target Buoy: #%d", targetBuoyId);
     
     // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, navHomeCmd);
+    bool success = comm.sendCommand(targetBuoyId, navHomeCmd);
     
     if (success) {
         Logger::log("   -> Commande NAV_HOME envoyee avec succes");
@@ -215,8 +207,6 @@ bool CommandManager::generateNavHoldCommand(uint8_t targetBuoyId) {
     Command navHoldCmd;
     navHoldCmd.targetBuoyId = targetBuoyId;
     navHoldCmd.type = CMD_NAV_HOLD;
-    navHoldCmd.heading = 0;         // Non utilisé pour cette commande
-    navHoldCmd.throttle = 0;        // Non utilisé pour cette commande
     navHoldCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -227,7 +217,7 @@ bool CommandManager::generateNavHoldCommand(uint8_t targetBuoyId) {
     Logger::logf("   -> Target Buoy: #%d", targetBuoyId);
     
     // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, navHoldCmd);
+    bool success = comm.sendCommand(targetBuoyId, navHoldCmd);
     
     if (success) {
         Logger::log("   -> Commande NAV_HOLD envoyee avec succes");
@@ -248,8 +238,6 @@ bool CommandManager::generateNavStopCommand(uint8_t targetBuoyId) {
     Command navStopCmd;
     navStopCmd.targetBuoyId = targetBuoyId;
     navStopCmd.type = CMD_NAV_STOP;
-    navStopCmd.heading = 0;         // Non utilisé pour cette commande
-    navStopCmd.throttle = 0;        // Non utilisé pour cette commande
     navStopCmd.timestamp = millis();
     
     // Sauvegarde de la commande courante
@@ -260,7 +248,7 @@ bool CommandManager::generateNavStopCommand(uint8_t targetBuoyId) {
     Logger::logf("   -> Target Buoy: #%d", targetBuoyId);
     
     // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, navStopCmd);
+    bool success = comm.sendCommand(targetBuoyId, navStopCmd);
     
     if (success) {
         Logger::log("   -> Commande NAV_STOP envoyee avec succes");
@@ -272,80 +260,100 @@ bool CommandManager::generateNavStopCommand(uint8_t targetBuoyId) {
 }
 
 /**
- * @brief Generate and send SET_THROTTLE command with increment
+ * @brief Generate and send THROTTLE_INCREASE command
  */
-bool CommandManager::generateSetThrottleCommand(uint8_t targetBuoyId, int8_t currentThrottle, int8_t increment) {
-    // Calcul du nouveau throttle
-    int16_t newThrottle = currentThrottle + increment;
+bool CommandManager::generateThrottleIncreaseCommand(uint8_t targetBuoyId) {
+    Logger::logf("\n[CommandManager] Generation commande THROTTLE_INCREASE pour Bouee #%d", targetBuoyId);
     
-    // Limitation entre -100 et +100
-    if (newThrottle > 100) newThrottle = 100;
-    if (newThrottle < -100) newThrottle = -100;
+    Command cmd;
+    cmd.targetBuoyId = targetBuoyId;
+    cmd.type = CMD_THROTTLE_INCREASE;
+    cmd.timestamp = millis();
     
-    Logger::logf("\n[CommandManager] Generation commande SET_THROTTLE pour Bouee #%d", targetBuoyId);
-    Logger::logf("   -> Throttle actuel: %d%%", currentThrottle);
-    Logger::logf("   -> Increment: %+d%%", increment);
-    Logger::logf("   -> Nouveau throttle: %d%%", newThrottle);
-    
-    // Création de la commande
-    Command throttleCmd;
-    throttleCmd.targetBuoyId = targetBuoyId;
-    throttleCmd.type = CMD_SET_THROTTLE;
-    throttleCmd.heading = 0;                    // Non utilisé
-    throttleCmd.throttle = (int8_t)newThrottle;
-    throttleCmd.timestamp = millis();
-    
-    // Sauvegarde de la commande courante
-    currentCommand = throttleCmd;
+    currentCommand = cmd;
     newCommandAvailable = true;
     
-    // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, throttleCmd);
+    bool success = comm.sendCommand(targetBuoyId, cmd);
     
     if (success) {
-        Logger::log("   -> Commande SET_THROTTLE envoyee avec succes");
+        Logger::log("   -> Commande THROTTLE_INCREASE envoyee avec succes");
     } else {
-        Logger::log("   -> ERREUR: Echec envoi commande SET_THROTTLE");
+        Logger::log("   -> ERREUR: Echec envoi commande THROTTLE_INCREASE");
     }
     
     return success;
 }
 
 /**
- * @brief Generate and send SET_TRUE_HEADING command with increment
+ * @brief Generate and send THROTTLE_DECREASE command
  */
-bool CommandManager::generateSetHeadingCommand(uint8_t targetBuoyId, float currentHeading, int16_t increment) {
-    // Calcul du nouveau cap
-    float newHeading = currentHeading + increment;
+bool CommandManager::generateThrottleDecreaseCommand(uint8_t targetBuoyId) {
+    Logger::logf("\n[CommandManager] Generation commande THROTTLE_DECREASE pour Bouee #%d", targetBuoyId);
     
-    // Normalisation entre 0 et 360 degrés
-    while (newHeading >= 360.0f) newHeading -= 360.0f;
-    while (newHeading < 0.0f) newHeading += 360.0f;
+    Command cmd;
+    cmd.targetBuoyId = targetBuoyId;
+    cmd.type = CMD_THROTTLE_DECREASE;
+    cmd.timestamp = millis();
     
-    Logger::logf("\n[CommandManager] Generation commande SET_TRUE_HEADING pour Bouee #%d", targetBuoyId);
-    Logger::logf("   -> Cap actuel: %.1f°", currentHeading);
-    Logger::logf("   -> Increment: %+d°", increment);
-    Logger::logf("   -> Nouveau cap: %.1f°", newHeading);
-    
-    // Création de la commande
-    Command headingCmd;
-    headingCmd.targetBuoyId = targetBuoyId;
-    headingCmd.type = CMD_SET_TRUE_HEADING;
-    headingCmd.heading = (int16_t)newHeading;   // Conversion en int16_t
-    headingCmd.throttle = 0;                    // Non utilisé
-    headingCmd.timestamp = millis();
-    
-    // Sauvegarde de la commande courante
-    currentCommand = headingCmd;
+    currentCommand = cmd;
     newCommandAvailable = true;
     
-    // Envoi via ESP-NOW
-    bool success = espNowComm.sendCommand(targetBuoyId, headingCmd);
+    bool success = comm.sendCommand(targetBuoyId, cmd);
     
     if (success) {
-        Logger::log("   -> Commande SET_TRUE_HEADING envoyee avec succes");
+        Logger::log("   -> Commande THROTTLE_DECREASE envoyee avec succes");
     } else {
-        Logger::log("   -> ERREUR: Echec envoi commande SET_TRUE_HEADING");
+        Logger::log("   -> ERREUR: Echec envoi commande THROTTLE_DECREASE");
+    }
+    
+    return success;
+}
+
+/**
+ * @brief Generate and send HEADING_INCREASE command
+ */
+bool CommandManager::generateHeadingIncreaseCommand(uint8_t targetBuoyId) {
+    Logger::logf("\n[CommandManager] Generation commande HEADING_INCREASE pour Bouee #%d", targetBuoyId);
+    
+    Command cmd;
+    cmd.targetBuoyId = targetBuoyId;
+    cmd.type = CMD_HEADING_INCREASE;
+    cmd.timestamp = millis();
+    
+    currentCommand = cmd;
+    newCommandAvailable = true;
+    
+    bool success = comm.sendCommand(targetBuoyId, cmd);
+    
+    if (success) {
+        Logger::log("   -> Commande HEADING_INCREASE envoyee avec succes");
+    } else {
+        Logger::log("   -> ERREUR: Echec envoi commande HEADING_INCREASE");
+    }
+    
+    return success;
+}
+
+/**
+ * @brief Generate and send HEADING_DECREASE command
+ */
+bool CommandManager::generateHeadingDecreaseCommand(uint8_t targetBuoyId) {
+    Logger::logf("\n[CommandManager] Generation commande HEADING_DECREASE pour Bouee #%d", targetBuoyId);
+    
+    Command cmd;
+    cmd.targetBuoyId = targetBuoyId;
+    cmd.type = CMD_HEADING_DECREASE;
+    cmd.timestamp = millis();
+    
+    currentCommand = cmd;
+    newCommandAvailable = true;
+    
+    bool success = comm.sendCommand(targetBuoyId, cmd);
+    
+    if (success) {
+        Logger::log("   -> Commande HEADING_DECREASE envoyee avec succes");
+    } else {
+        Logger::log("   -> ERREUR: Echec envoi commande HEADING_DECREASE");
     }
     
     return success;
@@ -358,22 +366,20 @@ uint8_t CommandManager::sendHeartbeatToAllBuoys() {
     uint8_t sentCount = 0;
     
     // Récupérer le nombre de bouées enregistrées
-    uint8_t buoyCount = espNowComm.getBuoyCount();
+    uint8_t buoyCount = comm.getBuoyCount();
     
     Logger::log("📡 Envoi heartbeat à " + String(buoyCount) + " bouées");
     
     // Envoyer un heartbeat à chaque bouée
     for (uint8_t buoyId = 0; buoyId < MAX_BUOYS; buoyId++) {
         // Vérifier si la bouée est connectée (données récentes)
-        if (espNowComm.isBuoyConnected(buoyId, 30000)) {  // Timeout de 30 secondes
+        if (comm.isBuoyConnected(buoyId, 30000)) {  // Timeout de 30 secondes
             Command heartbeatCmd;
             heartbeatCmd.targetBuoyId = buoyId;
             heartbeatCmd.type = CMD_HEARTBEAT;
-            heartbeatCmd.heading = 0;
-            heartbeatCmd.throttle = 0;
             heartbeatCmd.timestamp = millis();
             
-            if (espNowComm.sendCommand(buoyId, heartbeatCmd)) {
+            if (comm.sendCommand(buoyId, heartbeatCmd)) {
                 sentCount++;
                 Logger::log("  ✓ Heartbeat envoyé à Buoy #" + String(buoyId));
             } else {
@@ -383,6 +389,24 @@ uint8_t CommandManager::sendHeartbeatToAllBuoys() {
     }
     
     return sentCount;
+}
+
+/**
+ * @brief Generate and send HEARTBEAT command to a specific buoy
+ */
+bool CommandManager::generateHeartbeatCommand(uint8_t targetBuoyId) {
+    Command heartbeatCmd;
+    heartbeatCmd.targetBuoyId = targetBuoyId;
+    heartbeatCmd.type = CMD_HEARTBEAT;
+    heartbeatCmd.timestamp = millis();
+    
+    bool success = comm.sendCommand(targetBuoyId, heartbeatCmd);
+    
+    if (!success) {
+        Logger::logf("✗ Échec heartbeat Bouée #%d", targetBuoyId);
+    }
+    
+    return success;
 }
 
 /**

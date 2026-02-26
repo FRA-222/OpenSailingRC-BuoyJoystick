@@ -8,11 +8,35 @@
 #include "DisplayManager.h"
 #include "Logger.h"
 
+/**
+ * Convertit RGB565 pour compenser la permutation de l'écran AtomS3
+ * L'écran AtomS3 fait: R→G, G→B, B→R
+ * Pour afficher la bonne couleur, on doit faire la permutation inverse: R→B, G→R, B→G
+ */
+uint16_t DisplayManager::swapColorChannels(uint16_t rgb565) {
+    // Extraire les canaux RGB
+    uint8_t r = (rgb565 >> 11) & 0x1F;  // 5 bits rouge
+    uint8_t g = (rgb565 >> 5) & 0x3F;   // 6 bits vert
+    uint8_t b = rgb565 & 0x1F;          // 5 bits bleu
+    
+    // Permutation inverse: R→B, G→R, B→G
+    // Pour afficher rouge: mettre valeur dans canal bleu
+    // Pour afficher vert: mettre valeur dans canal rouge  
+    // Pour afficher bleu: mettre valeur dans canal vert
+    uint8_t new_r = (g >> 1);  // Vert(6 bits) → Rouge(5 bits), diviser par 2
+    uint8_t new_g = (b << 1);  // Bleu(5 bits) → Vert(6 bits), multiplier par 2
+    uint8_t new_b = r;         // Rouge(5 bits) → Bleu(5 bits)
+    
+    return (new_r << 11) | (new_g << 5) | new_b;
+}
+
 DisplayManager::DisplayManager(BuoyStateManager& buoyManager)
     : buoyMgr(buoyManager) {
     displayEnabled = true;
     lastUpdateTime = 0;
     currentBrightness = DEFAULT_BRIGHTNESS;
+    commandStatus = CommandStatus::IDLE;
+    commandStatusTime = 0;
 }
 
 bool DisplayManager::begin() {
@@ -46,6 +70,13 @@ void DisplayManager::update() {
     
     uint32_t currentTime = millis();
     
+    // Vérifier si de nouvelles données LoRa sont disponibles
+    bool hasNewData = buoyMgr.hasNewData();
+    if (hasNewData) {
+        buoyMgr.clearNewData();  // Effacer le flag
+        lastUpdateTime = 0;      // Forcer mise à jour immédiate
+    }
+    
     if (currentTime - lastUpdateTime >= UPDATE_INTERVAL) {
         lastUpdateTime = currentTime;
         displayMainScreen();
@@ -68,9 +99,16 @@ void DisplayManager::displayMainScreen() {
     }
     
     // Header avec nom de la bouée (couleur selon connexion)
-    if (cache.connected != connected || forceUpdate) {
+    // Toujours redessiner si un statut de commande est actif
+    uint32_t currentTime = millis();
+    bool hasActiveCommandStatus = (commandStatus != CommandStatus::IDLE && 
+                                     (currentTime - commandStatusTime) < STATUS_DISPLAY_DURATION);
+    
+    if (cache.connected != connected || forceUpdate || hasActiveCommandStatus) {
         drawHeader(connected);
-        cache.connected = connected;
+        if (!hasActiveCommandStatus) {
+            cache.connected = connected;
+        }
     }
     
     if (connected) {
@@ -103,11 +141,11 @@ void DisplayManager::displayMainScreen() {
         
         // Distance to consigne, Heading et Throttle (ligne 6)
         if (cache.distanceToCons != state.distanceToCons || 
-            cache.forcedTrueHeadingCmde != state.forcedTrueHeadingCmde ||
+            cache.autoPilotTrueHeadingCmde != state.autoPilotTrueHeadingCmde ||
             cache.autoPilotThrottleCmde != state.autoPilotThrottleCmde || forceUpdate) {
             drawDistanceThrottle(state);
             cache.distanceToCons = state.distanceToCons;
-            cache.forcedTrueHeadingCmde = state.forcedTrueHeadingCmde;
+            cache.autoPilotTrueHeadingCmde = state.autoPilotTrueHeadingCmde;
             cache.autoPilotThrottleCmde = state.autoPilotThrottleCmde;
         }
     } else {
@@ -122,16 +160,60 @@ void DisplayManager::drawHeader(bool connected) {
     uint8_t buoyId = buoyMgr.getSelectedBuoyId();
     String buoyName = buoyMgr.getBuoyName(buoyId);
     
+    Logger::logf("🎨 drawHeader: connected=%d, buoyId=%d", connected, buoyId);
+    
     // Effacer la zone du header
     M5.Display.fillRect(0, 0, 128, 20, TFT_BLACK);
     
     M5.Display.setTextDatum(TC_DATUM);
-    // Couleur verte si connecté, rouge si non connecté
-    if (connected) {
-        M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
+    
+    // Déterminer la couleur selon l'état de la commande et la connexion
+    uint32_t color;
+    uint32_t currentTime = millis();
+    uint32_t elapsed = currentTime - commandStatusTime;
+    
+    // Vérifier si le statut de commande est récent (moins de 3 secondes)
+    bool showCommandStatus = (elapsed < STATUS_DISPLAY_DURATION) && (commandStatus != CommandStatus::IDLE);
+    
+    if (showCommandStatus) {
+        // Afficher l'état de la commande en priorité
+        switch (commandStatus) {
+            case CommandStatus::SENDING:
+                M5.Display.setTextColor(TFT_BLUE, TFT_BLACK);  // Texte rouge sur fond noir
+                break;
+            case CommandStatus::ACK_RECEIVED:
+                M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);  // Texte vert sur fond noir
+                break;
+            case CommandStatus::TIMEOUT:
+                M5.Display.setTextColor(TFT_RED, TFT_BLACK);  // Texte rouge sur fond noir
+                break;
+            default:
+                M5.Display.setTextColor(connected ? TFT_GREEN : TFT_RED, TFT_BLACK);
+                break;
+        }
+        //color = swapColorChannels(raw_color);
+        //Logger::logf("   drawHeader: status=%d, raw=0x%04X, swapped=0x%04X", commandStatus, raw_color, color);
     } else {
-        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        // Afficher l'état de connexion normal
+        // TEST: Valeurs saturées
+        if (connected) {
+            M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);  // ROUGE pur → devrait donner VERT
+        } else {
+            M5.Display.setTextColor(TFT_RED, TFT_BLACK);  // CYAN (vert+bleu max) → test pour ROUGE vif
+        }
+        Logger::logf("   drawHeader: connected=%d, TEST CYAN color=0x%04X", connected, color);
+        
+        // Dessiner un rectangle de test de la couleur au lieu du texte
+        //M5.Display.fillRect(10, 5, 108, 10, color);  // Rectangle horizontal
+        //return;  // Skip le texte pour le moment
+        // Réinitialiser le statut après 3 secondes
+        if (commandStatus != CommandStatus::IDLE) {
+            Logger::logf("   drawHeader: Réinitialisation status IDLE (elapsed=%lu)", elapsed);
+            commandStatus = CommandStatus::IDLE;
+        }
     }
+    
+    //M5.Display.setTextColor(color);  // Pas de background, déjà effacé avec fillRect
     M5.Display.setFont(&fonts::Font4);  // Police plus grande (était Font2)
     M5.Display.drawString(buoyName, 64, 2);
 }
@@ -184,11 +266,10 @@ void DisplayManager::drawTempBattery(const BuoyState& state) {
     
     // Température à gauche
     char tempBuffer[16];
-    snprintf(tempBuffer, sizeof(tempBuffer), "%.1fC", state.temperature);
+    snprintf(tempBuffer, sizeof(tempBuffer), "%d%C", state.temperature);
     M5.Display.drawString(tempBuffer, 2, y);
     
     // Batterie à droite (conversion de mAh en %)
-    //uint8_t batteryPercent = (uint8_t)((state.remainingCapacity / 10000.0) * 100);
     uint8_t batteryPercent = (uint8_t)((state.remainingCapacity));
     if (batteryPercent > 100) batteryPercent = 100;
     
@@ -218,9 +299,9 @@ void DisplayManager::drawDistanceThrottle(const BuoyState& state) {
     }
     M5.Display.drawString(distBuffer, 2, y);
     
-    // Forced Heading au centre
+    // Autopilot Heading au centre
     char headingBuffer[16];
-    snprintf(headingBuffer, sizeof(headingBuffer), "%.0fd", state.forcedTrueHeadingCmde);
+    snprintf(headingBuffer, sizeof(headingBuffer), "%dd", state.autoPilotTrueHeadingCmde);
     M5.Display.setTextDatum(TC_DATUM);
     M5.Display.drawString(headingBuffer, 64, y);
     
@@ -384,6 +465,36 @@ void DisplayManager::setBrightness(uint8_t brightness) {
     M5.Display.setBrightness(brightness);
 }
 
+void DisplayManager::setCommandStatus(CommandStatus status) {
+    commandStatus = status;
+    commandStatusTime = millis();
+    
+    // Log pour debug (pas de swap ici, juste pour info)
+    const char* statusStr = "IDLE";
+    switch (status) {
+        case CommandStatus::SENDING:
+            statusStr = "SENDING (Bleu)";
+            break;
+        case CommandStatus::ACK_RECEIVED:
+            statusStr = "ACK_RECEIVED (Vert)";
+            break;
+        case CommandStatus::TIMEOUT:
+            statusStr = "TIMEOUT (Rouge)";
+            break;
+        default:
+            statusStr = "IDLE";
+            break;
+    }
+    Logger::logf("🖥️  Display: Statut commande -> %s (time=%lu)", statusStr, commandStatusTime);
+    
+    // Forcer le rafraîchissement immédiat du header
+    BuoyState state = buoyMgr.getSelectedBuoyState();
+    uint8_t buoyId = buoyMgr.getSelectedBuoyId();
+    bool connected = buoyMgr.isSelectedBuoyConnected();
+    
+    drawHeader(connected);
+}
+
 uint16_t DisplayManager::getBatteryColor(uint8_t batteryLevel) {
     if (batteryLevel > 50) {
         return TFT_GREEN;
@@ -429,4 +540,12 @@ uint16_t DisplayManager::getGeneralModeColor(tEtatsGeneral mode) {
         default:
             return TFT_WHITE;
     }
+}
+
+void DisplayManager::forceRefresh() {
+    // Réinitialise le cache pour forcer un redraw complet
+    cache.buoyId = 255;
+    cache.connected = false;
+    cache.firstUpdate = true;
+    lastUpdateTime = 0;
 }
