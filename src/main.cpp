@@ -104,8 +104,8 @@ void setup() {
     }
 
     // Initialisation Serial pour debug (non bloquant)
-    USBSerial.begin(115200);
-    delay(100);  // Court délai pour stabilisation (non bloquant)
+    //USBSerial.begin(115200);
+    //delay(100);  // Court délai pour stabilisation (non bloquant)
     
     Logger::log();
     Logger::log("*** DEMARRAGE ***");
