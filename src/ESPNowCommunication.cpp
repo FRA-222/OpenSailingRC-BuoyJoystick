@@ -23,6 +23,9 @@ ESPNowCommunication::ESPNowCommunication() {
         buoys[i].buoyId = i;
         buoys[i].lastState.buoyId = i;
         buoys[i].lastState.timestamp = 0;
+        buoys[i].lastUpdateTime = UINT32_MAX;  // Force disconnected au démarrage
+        buoys[i].lastRssi = 0;
+        buoys[i].lastSnr = 0.0f;
     }
     
     // Initialize command retry mechanism
@@ -181,11 +184,20 @@ bool ESPNowCommunication::sendCommand(uint8_t buoyId, const Command& cmd) {
 }
 
 BuoyState ESPNowCommunication::getLastBuoyState() {
-    // Retourne l'état de la dernière bouée qui a envoyé des données
+    // Retourne l'état de la bouée la plus récemment mise à jour (comme LoRa)
+    uint32_t mostRecent = 0;
+    int8_t mostRecentIndex = -1;
+    
     for (int i = 0; i < MAX_BUOYS; i++) {
-        if (buoys[i].registered && buoys[i].lastState.timestamp > 0) {
-            return buoys[i].lastState;
+        if (buoys[i].registered && buoys[i].lastUpdateTime > mostRecent 
+            && buoys[i].lastUpdateTime != UINT32_MAX) {
+            mostRecent = buoys[i].lastUpdateTime;
+            mostRecentIndex = i;
         }
+    }
+    
+    if (mostRecentIndex >= 0) {
+        return buoys[mostRecentIndex].lastState;
     }
     
     // Retourne un état vide si aucune donnée
@@ -223,12 +235,9 @@ bool ESPNowCommunication::isBuoyConnected(uint8_t buoyId, uint32_t timeoutMs) {
         return false;
     }
     
-    uint32_t lastUpdate = buoys[index].lastState.timestamp;
-    if (lastUpdate == 0) {
-        return false;  // Aucune donnée reçue
-    }
-    
-    return (millis() - lastUpdate) < timeoutMs;
+    uint32_t currentTime = millis();
+    uint32_t elapsed = currentTime - buoys[index].lastUpdateTime;
+    return elapsed < timeoutMs;
 }
 
 const uint8_t* ESPNowCommunication::getLocalMacAddress() {
@@ -241,9 +250,9 @@ void ESPNowCommunication::removeInactiveBuoys(uint32_t timeoutMs) {
     
     for (int i = 0; i < MAX_BUOYS; i++) {
         if (buoys[i].registered) {
-            // Vérifie si la bouée est inactive
-            if (buoys[i].lastState.timestamp == 0 || 
-                (now - buoys[i].lastState.timestamp) > timeoutMs) {
+            // Vérifie si la bouée est inactive (utilise lastUpdateTime comme LoRa)
+            if (buoys[i].lastUpdateTime == UINT32_MAX || 
+                (now - buoys[i].lastUpdateTime) > timeoutMs) {
                 
                 // Supprime le peer ESP-NOW
                 esp_err_t result = esp_now_del_peer(buoys[i].macAddress);
@@ -309,6 +318,12 @@ void ESPNowCommunication::handleReceivedData(const uint8_t* mac, const uint8_t* 
     BuoyState receivedState;
     memcpy(&receivedState, data, sizeof(BuoyState));
     
+    // Validation de l'ID de bouée (comme LoRa)
+    if (receivedState.buoyId >= MAX_BUOYS) {
+        Logger::logf("✗ ESP-NOW: ID bouée invalide %d", receivedState.buoyId);
+        return;
+    }
+    
     // Trouve la bouée par son adresse MAC
     int8_t index = findBuoyByMac(mac);
     if (index < 0) {
@@ -333,15 +348,14 @@ void ESPNowCommunication::handleReceivedData(const uint8_t* mac, const uint8_t* 
     // Copie l'état reçu
     memcpy(&buoys[index].lastState, data, sizeof(BuoyState));
     buoys[index].lastState.timestamp = millis();
+    buoys[index].lastUpdateTime = millis();  // Mise à jour du timestamp séparé
     
     newDataAvailable = true;
     
-    uint8_t batteryPercent = (uint8_t)((buoys[index].lastState.remainingCapacity / 10000.0) * 100);
-    Logger::logf("← État reçu de Bouée #%d (genMode=%d, navMode=%d, bat=%d%%, GPS=%s)",
+    Logger::logf("← État reçu de Bouée #%d (genMode=%d, navMode=%d, GPS=%s)",
                   buoys[index].lastState.buoyId,
                   buoys[index].lastState.generalMode,
                   buoys[index].lastState.navigationMode,
-                  batteryPercent,
                   buoys[index].lastState.gpsOk ? "OK" : "NO");
 }
 
@@ -367,16 +381,33 @@ int8_t ESPNowCommunication::findBuoyByMac(const uint8_t* mac) {
 // ICommunication interface implementation
 
 BuoyInfo* ESPNowCommunication::getBuoyInfo(uint8_t buoyId) {
+    static BuoyInfo convertedInfo[MAX_BUOYS];
     int8_t index = findBuoyIndex(buoyId);
+    
     if (index >= 0) {
-        // Cast BuoyPeer to BuoyInfo (compatible structure)
-        return reinterpret_cast<BuoyInfo*>(&buoys[index]);
+        // Conversion propre BuoyPeer -> BuoyInfo (comme LoRa)
+        convertedInfo[index].registered = buoys[index].registered;
+        convertedInfo[index].buoyId = buoys[index].buoyId;
+        convertedInfo[index].lastState = buoys[index].lastState;
+        convertedInfo[index].lastUpdateTime = buoys[index].lastUpdateTime;
+        convertedInfo[index].lastRssi = buoys[index].lastRssi;
+        convertedInfo[index].lastSnr = buoys[index].lastSnr;
+        return &convertedInfo[index];
     }
     return nullptr;
 }
 
 BuoyInfo* ESPNowCommunication::getAllBuoys() {
-    return reinterpret_cast<BuoyInfo*>(buoys);
+    static BuoyInfo convertedBuoys[MAX_BUOYS];
+    for (int i = 0; i < MAX_BUOYS; i++) {
+        convertedBuoys[i].registered = buoys[i].registered;
+        convertedBuoys[i].buoyId = buoys[i].buoyId;
+        convertedBuoys[i].lastState = buoys[i].lastState;
+        convertedBuoys[i].lastUpdateTime = buoys[i].lastUpdateTime;
+        convertedBuoys[i].lastRssi = buoys[i].lastRssi;
+        convertedBuoys[i].lastSnr = buoys[i].lastSnr;
+    }
+    return convertedBuoys;
 }
 
 int16_t ESPNowCommunication::getLastRssi() const {
@@ -478,11 +509,27 @@ void ESPNowCommunication::processAck(const AckWithStatePacket& ack) {
     }
     
     // Update BuoyState from ACK data - immediate display refresh
+    // Auto-enregistrement si bouée inconnue (comme LoRa)
     int8_t index = findBuoyIndex(ack.buoyId);
     if (index < 0) {
-        // Bouée inconnue - ne peut pas mettre à jour l'état
-        Logger::logf("   ⚠️  ACK de Bouée #%d non enregistrée", ack.buoyId);
-        return;
+        // Bouée non trouvée par ID - tentative d'enregistrement
+        // En ESP-NOW, on a besoin du MAC pour l'ajouter.
+        // Si l'ACK vient d'une bouée pas encore indexée par ID, 
+        // chercher par MAC via les peers existants
+        Logger::logf("   ⚠️  ACK de Bouée #%d - recherche dans les peers...", ack.buoyId);
+        
+        // Parcourir les bouées pour trouver un slot avec ce buoyId ou en créer un
+        for (int i = 0; i < MAX_BUOYS; i++) {
+            if (buoys[i].registered && buoys[i].buoyId == ack.buoyId) {
+                index = i;
+                break;
+            }
+        }
+        
+        if (index < 0) {
+            Logger::logf("   ⚠️  ACK de Bouée #%d non enregistrée (pas de MAC connue)", ack.buoyId);
+            return;
+        }
     }
     
     // Copy state data from ACK into stored BuoyState
@@ -499,6 +546,8 @@ void ESPNowCommunication::processAck(const AckWithStatePacket& ack) {
     state.distanceToCons = ack.distanceToCons;
     state.autoPilotThrottleCmde = ack.autoPilotThrottleCmde;
     state.autoPilotTrueHeadingCmde = ack.autoPilotTrueHeadingCmde;
+    
+    buoys[index].lastUpdateTime = millis();  // Mise à jour timestamp séparé
     
     // Signal new data available for immediate display update
     newDataAvailable = true;

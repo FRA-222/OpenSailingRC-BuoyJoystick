@@ -301,7 +301,7 @@ void DisplayManager::drawDistanceThrottle(const BuoyState& state) {
     
     // Autopilot Heading au centre
     char headingBuffer[16];
-    snprintf(headingBuffer, sizeof(headingBuffer), "%dd", state.autoPilotTrueHeadingCmde);
+    snprintf(headingBuffer, sizeof(headingBuffer), "%.0fd", state.autoPilotTrueHeadingCmde);
     M5.Display.setTextDatum(TC_DATUM);
     M5.Display.drawString(headingBuffer, 64, y);
     

@@ -33,38 +33,12 @@ void BuoyStateManager::update() {
         // Vérifie si de nouvelles données sont disponibles
         if (comm.hasNewData()) {
             comm.clearNewData();
-            // Les données sont déjà traitées dans ESPNowCommunication
-        }
-        
-        // Si aucune bouée n'est connectée actuellement mais qu'il y a des bouées enregistrées,
-        // essayer de sélectionner la première bouée disponible
-        uint8_t connectedCount = 0;
-        for (uint8_t i = 0; i < MAX_BUOYS; i++) {
-            if (comm.isBuoyConnected(i)) {
-                connectedCount++;
-            }
-        }
-        
-        if (connectedCount > 0 && !comm.isBuoyConnected(selectedBuoyId)) {
-            // La bouée actuellement sélectionnée n'est pas connectée,
-            // mais il y a d'autres bouées connectées - sélectionner la première disponible
-            for (uint8_t i = 0; i < MAX_BUOYS; i++) {
-                if (comm.isBuoyConnected(i)) {
-                    selectedBuoyId = i;
-                    Logger::logf("→ Auto-sélection bouée: #%d", selectedBuoyId);
-                    
-                    // Si c'est une nouvelle connexion (bouée était déconnectée), rafraîchir l'affichage
-                    if (lastConnectedBuoyId != i && displayMgr != nullptr) {
-                        Logger::log("🔄 Rafraîchissement écran - Bouée reconnectée");
-                        displayMgr->forceRefresh();
-                    }
-                    lastConnectedBuoyId = i;
-                    break;
-                }
-            }
+            // Les données sont déjà traitées dans ESPNowCommunication/LoRaCommunication
         }
         
         // Mise à jour du statut de connexion pour détecter les reconnexions
+        // NOTE: Pas d'auto-sélection - l'utilisateur choisit la bouée manuellement
+        // via selectNextBuoy() (appui écran), même si elle est déconnectée.
         if (comm.isBuoyConnected(selectedBuoyId) && lastConnectedBuoyId != selectedBuoyId) {
             lastConnectedBuoyId = selectedBuoyId;
             if (displayMgr != nullptr) {

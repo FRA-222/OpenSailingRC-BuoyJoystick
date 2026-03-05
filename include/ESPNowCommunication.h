@@ -92,7 +92,7 @@ public:
     void removeInactiveBuoys(uint32_t timeoutMs) override;
 
     // Additional ESP-NOW specific methods (override required for interface)
-    bool isBuoyConnected(uint8_t buoyId, uint32_t timeoutMs = 5000) override;
+    bool isBuoyConnected(uint8_t buoyId, uint32_t timeoutMs = 120000) override;
     
     // ESP-NOW only methods
     bool addBuoy(uint8_t buoyId, const uint8_t* macAddress);
@@ -117,6 +117,9 @@ private:
         uint8_t macAddress[6];
         bool registered;
         BuoyState lastState;
+        uint32_t lastUpdateTime;    ///< Last update timestamp (millis)
+        int16_t lastRssi;           ///< Last RSSI value
+        float lastSnr;              ///< Last SNR value
     };
 
     BuoyPeer buoys[MAX_BUOYS];

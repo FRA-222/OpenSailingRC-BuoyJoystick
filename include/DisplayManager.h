@@ -134,7 +134,7 @@ private:
         uint8_t temperature = 0;
         uint8_t batteryPercent = 0;
         uint8_t distanceToCons = 0;
-        int16_t autoPilotTrueHeadingCmde = 0;
+        float autoPilotTrueHeadingCmde = 0;
         int8_t autoPilotThrottleCmde = 0;
         bool firstUpdate = true;
     } cache;

@@ -28,11 +28,13 @@ struct BuoyState {
     bool gpsOk;
     bool headingOk;
     bool yawRateOk;
+    double latitude;                    ///< Latitude in degrees
+    double longitude;                   ///< Longitude in degrees
     float temperature;
     float remainingCapacity;
     float distanceToCons;
     int8_t autoPilotThrottleCmde;
-    int16_t autoPilotTrueHeadingCmde;
+    float autoPilotTrueHeadingCmde;     ///< Heading command in degrees (float to match Buoy)
 };
 
 /**

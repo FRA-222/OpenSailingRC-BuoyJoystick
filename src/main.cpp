@@ -24,7 +24,7 @@
 // Changer le mode de communication ici :
 // - CommMode::ESP_NOW : Communication ESP-NOW (2.4 GHz, courte portée, rapide)
 // - CommMode::LORA     : Communication LoRa (920 MHz, longue portée, lente)
-#define COMM_MODE CommMode::LORA
+#define COMM_MODE CommMode::ESP_NOW
 
 // ============================================================================
 // CONFIGURATION - DÉCOUVERTE AUTOMATIQUE DES BOUÉES
@@ -430,8 +430,13 @@ void loop() {
         uint8_t selectedId = buoyState->getSelectedBuoyId();
         Logger::logf("Bouee selectionnee: #%d", selectedId);
         
-        // Afficher les données si la bouée répond
-        BuoyInfo* buoyInfo = lora.getBuoyInfo(selectedId);
+        // Afficher les données si la bouée répond (mode-dépendant)
+        BuoyInfo* buoyInfo = nullptr;
+        if (COMM_MODE == CommMode::ESP_NOW) {
+            buoyInfo = espNow.getBuoyInfo(selectedId);
+        } else {
+            buoyInfo = lora.getBuoyInfo(selectedId);
+        }
         if (buoyInfo != nullptr && buoyInfo->lastUpdateTime > 0) {  
             BuoyState state = buoyInfo->lastState;
             uint32_t age = millis() - buoyInfo->lastUpdateTime;  // Utiliser timestamp LOCAL
