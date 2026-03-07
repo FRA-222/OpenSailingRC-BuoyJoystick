@@ -37,6 +37,8 @@ DisplayManager::DisplayManager(BuoyStateManager& buoyManager)
     currentBrightness = DEFAULT_BRIGHTNESS;
     commandStatus = CommandStatus::IDLE;
     commandStatusTime = 0;
+    showingBuoySelection = false;
+    buoySelectionTime = 0;
 }
 
 bool DisplayManager::begin() {
@@ -70,7 +72,19 @@ void DisplayManager::update() {
     
     uint32_t currentTime = millis();
     
-    // Vérifier si de nouvelles données LoRa sont disponibles
+    // Gérer l'overlay de sélection de bouée (non-bloquant)
+    if (showingBuoySelection) {
+        if (currentTime - buoySelectionTime >= BUOY_SELECTION_DURATION) {
+            showingBuoySelection = false;
+            // Forcer un redraw complet après la sélection
+            cache.firstUpdate = true;
+            lastUpdateTime = 0;
+        } else {
+            return;  // Ne pas redessiner pendant l'affichage de la sélection
+        }
+    }
+    
+    // Vérifier si de nouvelles données sont disponibles
     bool hasNewData = buoyMgr.hasNewData();
     if (hasNewData) {
         buoyMgr.clearNewData();  // Effacer le flag
@@ -450,7 +464,9 @@ void DisplayManager::displayBuoySelection() {
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Display.drawString(buoyName, 64, 70);
     
-    delay(500);  // Affiche pendant 500ms
+    // Non-bloquant : l'overlay sera effacé par update() après BUOY_SELECTION_DURATION
+    showingBuoySelection = true;
+    buoySelectionTime = millis();
 }
 
 void DisplayManager::setEnabled(bool enabled) {
@@ -466,33 +482,15 @@ void DisplayManager::setBrightness(uint8_t brightness) {
 }
 
 void DisplayManager::setCommandStatus(CommandStatus status) {
+    // IMPORTANT: Cette méthode peut être appelée depuis le callback ESP-NOW
+    // (tâche WiFi, Core 0). NE JAMAIS faire d'opérations SPI/Display ici
+    // car le bus SPI est utilisé par update()/displayMainScreen() sur Core 1.
+    // Seuls les flags sont mis à jour, le rendu est fait par update().
     commandStatus = status;
     commandStatusTime = millis();
     
-    // Log pour debug (pas de swap ici, juste pour info)
-    const char* statusStr = "IDLE";
-    switch (status) {
-        case CommandStatus::SENDING:
-            statusStr = "SENDING (Bleu)";
-            break;
-        case CommandStatus::ACK_RECEIVED:
-            statusStr = "ACK_RECEIVED (Vert)";
-            break;
-        case CommandStatus::TIMEOUT:
-            statusStr = "TIMEOUT (Rouge)";
-            break;
-        default:
-            statusStr = "IDLE";
-            break;
-    }
-    Logger::logf("🖥️  Display: Statut commande -> %s (time=%lu)", statusStr, commandStatusTime);
-    
-    // Forcer le rafraîchissement immédiat du header
-    BuoyState state = buoyMgr.getSelectedBuoyState();
-    uint8_t buoyId = buoyMgr.getSelectedBuoyId();
-    bool connected = buoyMgr.isSelectedBuoyConnected();
-    
-    drawHeader(connected);
+    // Forcer le prochain cycle update() à redessiner
+    lastUpdateTime = 0;
 }
 
 uint16_t DisplayManager::getBatteryColor(uint8_t batteryLevel) {

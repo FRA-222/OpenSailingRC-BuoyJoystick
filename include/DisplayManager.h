@@ -117,10 +117,15 @@ private:
     uint32_t lastUpdateTime;
     uint8_t currentBrightness;
     
-    // Command status for visual feedback
-    CommandStatus commandStatus;
-    uint32_t commandStatusTime;  ///< Time when status was last changed
+    // Command status for visual feedback (volatile: written from ESP-NOW callback on Core 0)
+    volatile CommandStatus commandStatus;
+    volatile uint32_t commandStatusTime;  ///< Time when status was last changed
     static const uint32_t STATUS_DISPLAY_DURATION = 3000;  ///< Display status for 3 seconds
+    
+    // Buoy selection overlay (non-blocking)
+    volatile bool showingBuoySelection;    ///< True while selection overlay is displayed
+    volatile uint32_t buoySelectionTime;   ///< Time when selection was shown
+    static const uint32_t BUOY_SELECTION_DURATION = 500;  ///< Show selection for 500ms
     
     // Cache pour éviter le flickering
     struct DisplayCache {

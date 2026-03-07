@@ -550,12 +550,12 @@ void ESPNowCommunication::processAck(const AckWithStatePacket& ack) {
     buoys[index].lastUpdateTime = millis();  // Mise à jour timestamp séparé
     
     // Signal new data available for immediate display update
+    // NOTE: Ne PAS appeler forceRefresh() ni aucune méthode display ici !
+    // processAck() est appelé depuis le callback ESP-NOW (tâche WiFi, Core 0)
+    // tandis que l'affichage s'exécute sur Core 1. Un accès SPI concurrent
+    // corromprait l'écran (pixels multicolores, écran noir/blanc).
+    // Le flag newDataAvailable sera traité par update() sur Core 1.
     newDataAvailable = true;
-    
-    // Force immediate display refresh so the user sees the updated state right away
-    if (displayManager != nullptr) {
-        displayManager->forceRefresh();
-    }
     
     Logger::logf("   ✓ État Bouée #%d mis à jour depuis ACK (genMode=%d, navMode=%d, throttle=%d)",
                  ack.buoyId, ack.generalMode, ack.navigationMode, ack.autoPilotThrottleCmde);
