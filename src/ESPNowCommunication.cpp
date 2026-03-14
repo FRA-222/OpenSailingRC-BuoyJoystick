@@ -30,6 +30,7 @@ ESPNowCommunication::ESPNowCommunication() {
     
     // Initialize command retry mechanism
     pendingCommandCount = 0;
+    commandSequenceCounter = 0;
     for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
         pendingCommands[i].ackReceived = true;  // Mark as completed initially
         pendingCommands[i].retryCount = 0;
@@ -69,6 +70,15 @@ bool ESPNowCommunication::begin() {
     // Enregistre les callbacks
     esp_now_register_recv_cb(onDataRecv);
     esp_now_register_send_cb(onDataSent);
+    
+    // Ajoute le peer broadcast pour l'envoi de commandes (permet le relais par le Hub)
+    esp_now_peer_info_t broadcastPeer = {};
+    memset(broadcastPeer.peer_addr, 0xFF, 6);  // FF:FF:FF:FF:FF:FF
+    broadcastPeer.channel = 0;
+    broadcastPeer.encrypt = false;
+    if (esp_now_add_peer(&broadcastPeer) != ESP_OK) {
+        Logger::log("⚠️  ESP-NOW: Échec ajout peer broadcast (peut-être déjà existant)");
+    }
     
     return true;
 }
@@ -160,6 +170,8 @@ bool ESPNowCommunication::sendCommand(uint8_t buoyId, const Command& cmd) {
     packet.targetBuoyId = cmd.targetBuoyId;
     packet.command = cmd.type;
     packet.timestamp = cmd.timestamp;
+    packet.sequenceNumber = ++commandSequenceCounter;
+    packet.ttl = 1; // Original packet, can be relayed once by Hub
     
     // Envoie via ESP-NOW
     bool sent = sendCommandPacket(packet);
@@ -324,10 +336,14 @@ void ESPNowCommunication::handleReceivedData(const uint8_t* mac, const uint8_t* 
         return;
     }
     
-    // Trouve la bouée par son adresse MAC
+    // Trouve la bouée : d'abord par MAC, puis par buoyId (cas du relais Hub)
     int8_t index = findBuoyByMac(mac);
     if (index < 0) {
-        // Bouée inconnue - tentative de découverte automatique
+        // MAC inconnue — peut être relayé par le Hub, chercher par buoyId
+        index = findBuoyIndex(receivedState.buoyId);
+    }
+    if (index < 0) {
+        // Bouée vraiment inconnue - tentative de découverte automatique
         Logger::print("📡 ESP-NOW: Nouvelle bouée détectée - MAC: ");
         for (int i = 0; i < 6; i++) {
             Logger::printf("%02X", mac[i]);
@@ -343,6 +359,13 @@ void ESPNowCommunication::handleReceivedData(const uint8_t* mac, const uint8_t* 
             Logger::logf("✗ ESP-NOW: Impossible d'ajouter la Bouée #%d", receivedState.buoyId);
             return;
         }
+    }
+    
+    // Déduplication : ignorer si même sequenceNumber que le dernier reçu pour cette bouée
+    if (buoys[index].lastUpdateTime > 0 &&
+        buoys[index].lastState.sequenceNumber == receivedState.sequenceNumber &&
+        receivedState.sequenceNumber != 0) {
+        return; // Paquet dupliqué, ignorer
     }
     
     // Copie l'état reçu
@@ -434,9 +457,10 @@ bool ESPNowCommunication::sendCommandPacket(const CommandPacket& packet) {
         return false;
     }
     
-    // Envoie via ESP-NOW
+    // Envoie via broadcast (permet au Hub de relayer la commande)
+    static const uint8_t broadcastAddress[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     esp_err_t result = esp_now_send(
-        buoys[index].macAddress,
+        broadcastAddress,
         (uint8_t*)&packet,
         sizeof(CommandPacket)
     );
