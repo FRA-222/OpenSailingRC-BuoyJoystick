@@ -21,7 +21,7 @@
 class DisplayManager;
 
 // Maximum number of manageable buoys
-#define MAX_BUOYS 6
+#define MAX_BUOYS 8
 
 /**
  * @brief Command packet structure (sent)

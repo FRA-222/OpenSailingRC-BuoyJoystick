@@ -55,7 +55,7 @@ struct BuoyInfo {
 
 // Maximum number of buoys
 #ifndef MAX_BUOYS
-#define MAX_BUOYS 6
+#define MAX_BUOYS 8
 #endif
 
 /**

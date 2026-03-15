@@ -56,7 +56,7 @@ class DisplayManager;
 #endif
 
 // Maximum number of manageable buoys
-#define MAX_BUOYS 6
+#define MAX_BUOYS 8
 
 // LoRa E220-JP configuration
 #define LORA_CHANNEL 0x00             // Channel 23 = 920.6 MHz (Japan ISM band)
