@@ -8,6 +8,7 @@
 #include "ESPNowCommunication.h"
 #include "Logger.h"
 #include "DisplayManager.h"
+#include <esp_wifi.h>
 
 // Instance statique pour les callbacks
 ESPNowCommunication* ESPNowCommunication::instance = nullptr;
@@ -45,10 +46,13 @@ bool ESPNowCommunication::begin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     
+    // Enable ESP-NOW Long Range mode only
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    Logger::log("✓ ESP-NOW: Long Range ONLY mode");
+    
     // Configure la puissance TX WiFi au maximum pour portée maximale ESP-NOW
-    // WIFI_POWER_19_5dBm = puissance maximale ESP32 (19.5 dBm / ~90 mW)
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
-    Logger::log("✓ ESP-NOW: Puissance TX réglée au MAXIMUM (19.5 dBm)");
+    esp_wifi_set_max_tx_power(84);  // 21 dBm max
+    Logger::log("✓ ESP-NOW: Puissance TX réglée à 21 dBm (max)");
     
     // Obtient et affiche l'adresse MAC locale
     WiFi.macAddress(localMac);
