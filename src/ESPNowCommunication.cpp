@@ -46,9 +46,9 @@ bool ESPNowCommunication::begin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     
-    // Enable ESP-NOW Long Range + standard protocols
-    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
-    Logger::log("✓ ESP-NOW: Long Range + standard protocols enabled");
+    // Enable ESP-NOW Long Range mode only
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    Logger::log("✓ ESP-NOW: Long Range ONLY mode");
     
     // Configure la puissance TX WiFi au maximum pour portée maximale ESP-NOW
     esp_wifi_set_max_tx_power(84);  // 21 dBm max
