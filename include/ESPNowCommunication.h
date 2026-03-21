@@ -21,15 +21,18 @@
 class DisplayManager;
 
 // Maximum number of manageable buoys
-#define MAX_BUOYS 6
+#define MAX_BUOYS 8
 
 /**
  * @brief Command packet structure (sent)
+ * Uses __attribute__((packed)) to ensure identical memory layout across all devices
  */
-struct CommandPacket {
+struct __attribute__((packed)) CommandPacket {
     uint8_t targetBuoyId;       ///< Target buoy ID
     BuoyCommand command;        ///< Command type
     uint32_t timestamp;         ///< Timestamp
+    uint16_t sequenceNumber;    ///< Sequence number for deduplication
+    uint8_t ttl;                ///< Time-To-Live: 1=original, 0=relayed by Hub
 };
 
 /**
@@ -53,6 +56,9 @@ struct __attribute__((packed)) AckWithStatePacket {
     float distanceToCons;               ///< Distance to consigne in meters
     int8_t autoPilotThrottleCmde;       ///< Autopilot throttle command
     int16_t autoPilotTrueHeadingCmde;   ///< Autopilot heading command (0-359)
+
+    // v2 addition for Hub relay
+    uint8_t ttl;                        ///< Time-To-Live: 1=original, 0=relayed by Hub
 };
 
 /**
@@ -134,6 +140,7 @@ private:
     static const uint32_t RETRY_INTERVAL_MS = 500;   ///< Interval between retries (ms)
     PendingCommandESPNow pendingCommands[MAX_PENDING_COMMANDS]; ///< Queue of pending commands
     uint8_t pendingCommandCount;                     ///< Number of pending commands
+    uint16_t commandSequenceCounter;                  ///< Sequence counter for command packets
     DisplayManager* displayManager;                  ///< Pointer to display manager for visual feedback
     
     static ESPNowCommunication* instance;  ///< Instance for callback

@@ -35,6 +35,10 @@ struct BuoyState {
     float distanceToCons;
     int8_t autoPilotThrottleCmde;
     float autoPilotTrueHeadingCmde;     ///< Heading command in degrees (float to match Buoy)
+
+    // v2 additions for Hub relay
+    uint16_t sequenceNumber;            ///< Sequence number for deduplication
+    uint8_t ttl;                        ///< Time-To-Live: 1=original, 0=relayed by Hub
 };
 
 /**
@@ -51,7 +55,7 @@ struct BuoyInfo {
 
 // Maximum number of buoys
 #ifndef MAX_BUOYS
-#define MAX_BUOYS 6
+#define MAX_BUOYS 8
 #endif
 
 /**
