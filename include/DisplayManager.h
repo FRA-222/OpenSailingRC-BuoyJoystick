@@ -131,6 +131,7 @@ private:
     struct DisplayCache {
         uint8_t buoyId = 255;
         bool connected = false;
+        bool usingESPNow = false;  ///< Source de données : true=ESP-NOW, false=LoRa
         tEtatsGeneral generalMode = INIT;
         tEtatsNav navigationMode = NAV_STOP;
         bool gpsOk = false;
@@ -150,10 +151,15 @@ private:
     /**
      * @brief Draw header with buoy name
      * @param connected Connection status
+     * @param usingESPNow true if data comes from ESP-NOW passive listener
      * 
-     * Displays buoy name in green if connected, red if disconnected.
+     * Displays buoy name in:
+     * - Cyan if connected via ESP-NOW data
+     * - Green if connected via LoRa only
+     * - Red if disconnected
+     * Command status colors (blue/green/red) take priority.
      */
-    void drawHeader(bool connected);
+    void drawHeader(bool connected, bool usingESPNow = false);
 
     /**
      * @brief Draw sensor status LEDs

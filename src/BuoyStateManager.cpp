@@ -10,7 +10,7 @@
 #include "Logger.h"
 
 BuoyStateManager::BuoyStateManager(ICommunication& comm) 
-    : comm(comm), displayMgr(nullptr) {
+    : comm(comm), espNowListener(nullptr), displayMgr(nullptr) {
     selectedBuoyId = 0;
     lastUpdateTime = 0;
     lastConnectedBuoyId = 255;
@@ -30,22 +30,26 @@ void BuoyStateManager::update() {
     if (currentTime - lastUpdateTime >= UPDATE_INTERVAL) {
         lastUpdateTime = currentTime;
         
-        // Vérifie si de nouvelles données sont disponibles
+        // Vérifie si de nouvelles données sont disponibles (primary)
         if (comm.hasNewData()) {
             comm.clearNewData();
-            // Les données sont déjà traitées dans ESPNowCommunication/LoRaCommunication
+        }
+        
+        // Vérifie aussi les données ESP-NOW (écoute passive en mode LoRa)
+        if (espNowListener && espNowListener->hasNewData()) {
+            espNowListener->clearNewData();
         }
         
         // Mise à jour du statut de connexion pour détecter les reconnexions
-        // NOTE: Pas d'auto-sélection - l'utilisateur choisit la bouée manuellement
-        // via selectNextBuoy() (appui écran), même si elle est déconnectée.
-        if (comm.isBuoyConnected(selectedBuoyId) && lastConnectedBuoyId != selectedBuoyId) {
+        // Considère les deux sources (LoRa + ESP-NOW)
+        bool connected = isSelectedBuoyConnected();
+        if (connected && lastConnectedBuoyId != selectedBuoyId) {
             lastConnectedBuoyId = selectedBuoyId;
             if (displayMgr != nullptr) {
                 Logger::log("🔄 Rafraîchissement écran - Bouée reconnectée");
                 displayMgr->forceRefresh();
             }
-        } else if (!comm.isBuoyConnected(selectedBuoyId) && lastConnectedBuoyId == selectedBuoyId) {
+        } else if (!connected && lastConnectedBuoyId == selectedBuoyId) {
             lastConnectedBuoyId = 255;  // Marquer comme déconnectée
         }
     }
@@ -79,13 +83,35 @@ uint8_t BuoyStateManager::getSelectedBuoyId() {
 }
 
 BuoyState BuoyStateManager::getSelectedBuoyState() {
+    // Si ESP-NOW reçoit activement des données pour cette bouée,
+    // utiliser exclusivement ESP-NOW (évite le flip-flop avec les vieux ACK LoRa)
+    if (isESPNowActiveForBuoy(selectedBuoyId)) {
+        return espNowListener->getBuoyState(selectedBuoyId);
+    }
+    
+    // Sinon, utiliser la source primaire (LoRa ou ESP-NOW selon le mode)
     return comm.getBuoyState(selectedBuoyId);
+}
+
+bool BuoyStateManager::isESPNowActiveForBuoy(uint8_t buoyId) {
+    if (!espNowListener) return false;
+    
+    BuoyInfo* info = espNowListener->getBuoyInfo(buoyId);
+    if (!info || !info->registered || info->lastUpdateTime == UINT32_MAX) return false;
+    
+    uint32_t age = millis() - info->lastUpdateTime;
+    return age < ESPNOW_ACTIVE_TIMEOUT_MS;
+}
+
+bool BuoyStateManager::isUsingESPNowData() {
+    return isESPNowActiveForBuoy(selectedBuoyId);
 }
 
 uint8_t BuoyStateManager::getConnectedBuoyCount() {
     uint8_t count = 0;
     for (uint8_t i = 0; i < MAX_BUOYS; i++) {
-        if (comm.isBuoyConnected(i)) {
+        if (comm.isBuoyConnected(i) || 
+            (espNowListener && espNowListener->isBuoyConnected(i))) {
             count++;
         }
     }
@@ -93,7 +119,9 @@ uint8_t BuoyStateManager::getConnectedBuoyCount() {
 }
 
 bool BuoyStateManager::isSelectedBuoyConnected() {
-    return comm.isBuoyConnected(selectedBuoyId);
+    if (comm.isBuoyConnected(selectedBuoyId)) return true;
+    if (espNowListener && espNowListener->isBuoyConnected(selectedBuoyId)) return true;
+    return false;
 }
 
 String BuoyStateManager::getBuoyName(uint8_t buoyId) {
@@ -135,5 +163,27 @@ String BuoyStateManager::getGeneralModeName(tEtatsGeneral mode) {
             return "NAV";
         default:
             return "UNKNOWN";
+    }
+}
+
+void BuoyStateManager::setESPNowListener(ICommunication* listener) {
+    espNowListener = listener;
+    if (listener) {
+        Logger::log("✓ BuoyStateManager: Écouteur ESP-NOW configuré (données passives)");
+    }
+}
+
+bool BuoyStateManager::hasNewData() {
+    bool hasNew = comm.hasNewData();
+    if (espNowListener && espNowListener->hasNewData()) {
+        hasNew = true;
+    }
+    return hasNew;
+}
+
+void BuoyStateManager::clearNewData() {
+    comm.clearNewData();
+    if (espNowListener) {
+        espNowListener->clearNewData();
     }
 }

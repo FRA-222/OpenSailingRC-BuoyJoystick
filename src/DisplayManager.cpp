@@ -112,17 +112,22 @@ void DisplayManager::displayMainScreen() {
         forceUpdate = true;
     }
     
-    // Header avec nom de la bouée (couleur selon connexion)
-    // Toujours redessiner si un statut de commande est actif
+    // Détection de la source de données active
+    bool usingESPNow = buoyMgr.isUsingESPNowData();
+    
+    // Header avec nom de la bouée (couleur selon connexion et source)
+    // Toujours redessiner si un statut de commande est actif ou si la source change
     uint32_t currentTime = millis();
     bool hasActiveCommandStatus = (commandStatus != CommandStatus::IDLE && 
                                      (currentTime - commandStatusTime) < STATUS_DISPLAY_DURATION);
     
-    if (cache.connected != connected || forceUpdate || hasActiveCommandStatus) {
-        drawHeader(connected);
+    if (cache.connected != connected || cache.usingESPNow != usingESPNow || 
+        forceUpdate || hasActiveCommandStatus) {
+        drawHeader(connected, usingESPNow);
         if (!hasActiveCommandStatus) {
             cache.connected = connected;
         }
+        cache.usingESPNow = usingESPNow;
     }
     
     if (connected) {
@@ -170,11 +175,11 @@ void DisplayManager::displayMainScreen() {
     }
 }
 
-void DisplayManager::drawHeader(bool connected) {
+void DisplayManager::drawHeader(bool connected, bool usingESPNow) {
     uint8_t buoyId = buoyMgr.getSelectedBuoyId();
     String buoyName = buoyMgr.getBuoyName(buoyId);
     
-    Logger::logf("🎨 drawHeader: connected=%d, buoyId=%d", connected, buoyId);
+    Logger::logf("🎨 drawHeader: connected=%d, usingESPNow=%d, buoyId=%d", connected, usingESPNow, buoyId);
     
     // Effacer la zone du header
     M5.Display.fillRect(0, 0, 128, 20, TFT_BLACK);
@@ -193,33 +198,31 @@ void DisplayManager::drawHeader(bool connected) {
         // Afficher l'état de la commande en priorité
         switch (commandStatus) {
             case CommandStatus::SENDING:
-                M5.Display.setTextColor(TFT_BLUE, TFT_BLACK);  // Texte rouge sur fond noir
+                M5.Display.setTextColor(TFT_BLUE, TFT_BLACK);
                 break;
             case CommandStatus::ACK_RECEIVED:
-                M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);  // Texte vert sur fond noir
+                M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
                 break;
             case CommandStatus::TIMEOUT:
-                M5.Display.setTextColor(TFT_RED, TFT_BLACK);  // Texte rouge sur fond noir
+                M5.Display.setTextColor(TFT_RED, TFT_BLACK);
                 break;
             default:
                 M5.Display.setTextColor(connected ? TFT_GREEN : TFT_RED, TFT_BLACK);
                 break;
         }
-        //color = swapColorChannels(raw_color);
-        //Logger::logf("   drawHeader: status=%d, raw=0x%04X, swapped=0x%04X", commandStatus, raw_color, color);
     } else {
         // Afficher l'état de connexion normal
-        // TEST: Valeurs saturées
+        // Cyan = données ESP-NOW actives, Vert = LoRa seulement, Rouge = déconnecté
         if (connected) {
-            M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);  // ROUGE pur → devrait donner VERT
+            if (usingESPNow) {
+                M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
+            } else {
+                M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
+            }
         } else {
-            M5.Display.setTextColor(TFT_RED, TFT_BLACK);  // CYAN (vert+bleu max) → test pour ROUGE vif
+            M5.Display.setTextColor(TFT_RED, TFT_BLACK);
         }
-        Logger::logf("   drawHeader: connected=%d, TEST CYAN color=0x%04X", connected, color);
         
-        // Dessiner un rectangle de test de la couleur au lieu du texte
-        //M5.Display.fillRect(10, 5, 108, 10, color);  // Rectangle horizontal
-        //return;  // Skip le texte pour le moment
         // Réinitialiser le statut après 3 secondes
         if (commandStatus != CommandStatus::IDLE) {
             Logger::logf("   drawHeader: Réinitialisation status IDLE (elapsed=%lu)", elapsed);
@@ -227,8 +230,7 @@ void DisplayManager::drawHeader(bool connected) {
         }
     }
     
-    //M5.Display.setTextColor(color);  // Pas de background, déjà effacé avec fillRect
-    M5.Display.setFont(&fonts::Font4);  // Police plus grande (était Font2)
+    M5.Display.setFont(&fonts::Font4);
     M5.Display.drawString(buoyName, 64, 2);
 }
 

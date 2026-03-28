@@ -149,6 +149,15 @@ void setup() {
         } else {
             Logger::log("   -> LoRa 920: OK");
         }
+        
+        // En mode LoRa, initialiser aussi ESP-NOW en écoute passive
+        // pour recevoir les broadcasts de statut des bouées (plus rapide que LoRa)
+        Logger::log("2b. Initialisation ESP-NOW (écoute passive)...");
+        if (!espNow.begin()) {
+            Logger::log("   -> WARNING: Echec init ESP-NOW passif (optionnel)");
+        } else {
+            Logger::log("   -> ESP-NOW passif: OK (réception broadcasts bouées)");
+        }
     }
     
     // 3. Préparation pour découverte automatique des bouées
@@ -182,6 +191,11 @@ void setup() {
     Logger::log("5. Initialisation BuoyStateManager...");
     buoyState->begin();
     buoyState->setDisplayManager(display);
+    
+    // En mode LoRa, configurer l'écoute passive ESP-NOW
+    if (COMM_MODE == CommMode::LORA) {
+        buoyState->setESPNowListener(&espNow);
+    }
     
     
     
@@ -437,6 +451,28 @@ void loop() {
         } else {
             buoyInfo = lora.getBuoyInfo(selectedId);
         }
+        
+        // En mode LoRa, vérifier aussi les données ESP-NOW (plus récentes ?)
+        BuoyInfo* espNowInfo = nullptr;
+        if (COMM_MODE == CommMode::LORA) {
+            espNowInfo = espNow.getBuoyInfo(selectedId);
+        }
+        
+        // Choisir la source la plus récente
+        if (espNowInfo != nullptr && espNowInfo->registered && 
+            espNowInfo->lastUpdateTime != UINT32_MAX) {
+            bool useEspNow = false;
+            if (buoyInfo == nullptr || !buoyInfo->registered || 
+                buoyInfo->lastUpdateTime == UINT32_MAX) {
+                useEspNow = true;
+            } else if (espNowInfo->lastUpdateTime > buoyInfo->lastUpdateTime) {
+                useEspNow = true;
+            }
+            if (useEspNow) {
+                buoyInfo = espNowInfo;
+            }
+        }
+        
         if (buoyInfo != nullptr && buoyInfo->lastUpdateTime > 0) {  
             BuoyState state = buoyInfo->lastState;
             uint32_t age = millis() - buoyInfo->lastUpdateTime;  // Utiliser timestamp LOCAL

@@ -114,23 +114,47 @@ public:
 
     /**
      * @brief Check if new communication data is available
-     * @return true if new data has been received
+     * @return true if new data has been received (from primary or ESP-NOW listener)
      */
-    bool hasNewData() { return comm.hasNewData(); }
+    bool hasNewData();
 
     /**
-     * @brief Clear the new data flag
+     * @brief Clear the new data flag (on both primary and ESP-NOW listener)
      */
-    void clearNewData() { comm.clearNewData(); }
+    void clearNewData();
+
+    /**
+     * @brief Set optional ESP-NOW listener for passive data reception in LoRa mode
+     * When set, BuoyStateManager will also use ESP-NOW data to provide
+     * the freshest available state for each buoy.
+     * @param listener Pointer to ESPNowCommunication instance (or nullptr to disable)
+     */
+    void setESPNowListener(ICommunication* listener);
+
+    /**
+     * @brief Check if the display is currently using ESP-NOW data for the selected buoy
+     * @return true if ESP-NOW is the active data source for the selected buoy
+     */
+    bool isUsingESPNowData();
 
 private:
+    /**
+     * @brief Check if ESP-NOW is actively receiving data for a buoy
+     * "Active" means data received within the last ESPNOW_ACTIVE_TIMEOUT_MS.
+     * @param buoyId Buoy ID to check
+     * @return true if ESP-NOW data is recent enough to be considered active
+     */
+    bool isESPNowActiveForBuoy(uint8_t buoyId);
+
     ICommunication& comm;
+    ICommunication* espNowListener;  ///< Optional ESP-NOW passive listener (used in LoRa mode)
     DisplayManager* displayMgr;
     uint8_t selectedBuoyId;
     uint8_t lastConnectedBuoyId;
     uint32_t lastUpdateTime;
     
     static const uint32_t UPDATE_INTERVAL = 100;  ///< Update interval in ms
+    static const uint32_t ESPNOW_ACTIVE_TIMEOUT_MS = 10000;  ///< ESP-NOW data valid for 10s
 };
 
 #endif // BUOY_STATE_MANAGER_H
