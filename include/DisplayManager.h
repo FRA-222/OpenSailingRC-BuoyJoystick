@@ -11,6 +11,14 @@
  * - Heading and speed
  */
 
+/*
+ * Open Source License Notice
+ * SPDX-License-Identifier: GPL-3.0-only
+ * This file is part of the OpenSailingRC-BuoyJoystick project and is distributed
+ * under the GNU General Public License v3.0.
+ * See https://www.gnu.org/licenses/gpl-3.0.html for full license text.
+ */
+
 #ifndef DISPLAY_MANAGER_H
 #define DISPLAY_MANAGER_H
 

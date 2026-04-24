@@ -7,6 +7,14 @@
  * Ossature avec communication ESP-NOW ou LoRa bidirectionnelle et affichage LCD
  */
 
+/*
+ * Open Source License Notice
+ * SPDX-License-Identifier: GPL-3.0-only
+ * This file is part of the OpenSailingRC-BuoyJoystick project and is distributed
+ * under the GNU General Public License v3.0.
+ * See https://www.gnu.org/licenses/gpl-3.0.html for full license text.
+ */
+
 #include <Arduino.h>
 #include <M5Unified.h>
 #include "Logger.h"

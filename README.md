@@ -1,599 +1,345 @@
-# 🎮 OpenSailingRC BuoyJoystick - v2.0
+# OpenSailingRC BuoyJoystick
 
-## ✅ État d'Avancement
+🌐 [Version française](README.fr.md)
 
-### Modules Implémentés
+GPS autonomous buoy controller based on the **M5Stack Atom S3**.  
+Sends navigation commands to buoys via **LoRa 920 MHz** (long range) or **ESP-NOW 2.4 GHz** (short range), and displays their real-time status on the built-in LCD screen.
 
-- [x] **JoystickManager** - Lecture I2C des joysticks et boutons (5 boutons incluant écran Atom S3)
-- [x] **ESPNowCommunication** - Communication bidirectionnelle ESP-NOW avec découverte dynamique
-- [x] **BuoyStateManager** - Gestion état des bouées avec modes général et navigation
-- [x] **DisplayManager** - Affichage LCD 128x128 avec informations complètes
-- [x] **Logger** - Système de logging centralisé (série + LCD) - 100% intégré
-- [x] **CommandManager** - Génération et envoi de commandes aux bouées
-- [x] **main.cpp** - Loop principal avec intégration complète
+This project is part of the **OpenSailingRC** ecosystem:
 
-### Fonctionnalités Opérationnelles
-
-✅ **Contrôles**
-- Lecture des 2 joysticks (4 axes avec calibration)
-- Lecture des 5 boutons (4 JoyC + 1 écran tactile Atom S3)
-- Détection pression simple, maintien prolongé et relâchement
-- Lecture batteries (2x)
-
-✅ **Communication ESP-NOW**
-- Découverte automatique des bouées via broadcast
-- Nettoyage automatique des bouées inactives (15s timeout)
-- Support jusqu'à 6 bouées simultanées
-- Réception état des bouées (1Hz)
-- Envoi commandes bidirectionnel
-
-✅ **Commandes Disponibles**
-- INIT_HOME (bouton jaune gauche)
-- Sélection bouée active (bouton jaune droit / écran Atom)
-- Modes général et navigation
-
-✅ **Affichage**
-- LCD temps réel (128x128)
-- Header avec ID bouée et indicateur LED bouée
-- Affichage modes général et navigation hiérarchiques
-- Indicateurs batterie/GPS/Signal avec icônes
-- Informations de navigation (cap, vitesse)
-- Codes couleur selon état (vert/orange/rouge/bleu/cyan/jaune)
-
-✅ **Logging**
-- Système centralisé Logger dans toutes les classes
-- 90 remplacements Serial → Logger
-- Impact mémoire négligeable (<3KB Flash)
-
-### Prochaines Évolutions
-
-- [ ] Mapping complet Joystick → Commandes
-- [ ] Commande SET_HEADING (Joystick droit X)
-- [ ] Commande SET_THROTTLE (Joystick gauche Y)
-- [ ] Commande HOLD (BTN_LEFT_STICK)
-- [ ] Commande STOP/RETURN
-- [ ] Menu de configuration via écran
+| Project | Role |
+|---------|------|
+| **OpenSailingRC-BuoyJoystick** | This project — joystick controller |
+| OpenSailingRC-BoatGPS | Autonomous GPS buoy |
+| OpenSailingRC-Display | Multi-buoy display |
+| OpenSailingRC-Anemometer-v2 | Anemometer sensor |
 
 ---
 
-## 🚀 Démarrage Rapide
+## Required Hardware
 
-### 1. Configuration Automatique
+| Component | Reference | Description |
+|-----------|-----------|-------------|
+| Controller | M5Stack Atom S3 | ESP32-S3, 128×128 LCD screen |
+| Joystick | M5Stack Dual Atom JoyStick | 2 joysticks + 4 buttons via I2C (STM32 @ 0x59) |
+| Radio module (LoRa) | M5Stack Unit LoRaE220-920 | 920 MHz, long range |
 
-**Plus besoin de configurer les adresses MAC !** 
+> The LoRa module is optional: **ESP-NOW** mode works with the Atom S3 alone.
 
-Le système utilise maintenant la **découverte automatique des bouées** :
-- Les bouées sont détectées automatiquement lors de leur premier broadcast
-- Support jusqu'à 6 bouées simultanées
-- Nettoyage automatique des bouées inactives après 15 secondes
+---
 
-### 2. Compilation
+## Software Prerequisites
+
+- [PlatformIO](https://platformio.org/) (CLI or VS Code extension)
+- Libraries installed automatically by PlatformIO:
+  - `m5stack/M5GFX`
+  - `m5stack/M5Unified`
+  - `m5stack/M5-LoRa-E220-JP`
+
+---
+
+## Quick Start
+
+### 1. Clone and build
 
 ```bash
-cd "/Users/philippe/Documents/PlatformIO/Projects/OpenSailingRC-BuoyJoystick"
+git clone <repo-url>
+cd OpenSailingRC-BuoyJoystick
 platformio run
 ```
 
-### 3. Upload
+### 2. Flash
 
 ```bash
 platformio run --target upload
 ```
 
-### 4. Moniteur Série
+### 3. Serial monitor (115 200 baud)
 
 ```bash
 platformio device monitor
 ```
 
-## 📡 Communication ESP-NOW
+---
 
-### Découverte Dynamique des Bouées
+## Configuration
 
-Le système détecte automatiquement les bouées :
-- **Découverte** : Première réception d'un broadcast → bouée ajoutée automatiquement
-- **Monitoring** : État reçu toutes les secondes (1Hz)
-- **Nettoyage** : Bouées inactives retirées après 15 secondes
-- **Capacité** : Jusqu'à 6 bouées simultanées (constante `MAX_BUOYS`)
+### Communication mode
 
-### Structure CommandPacket (Joystick → Bouée)
+The mode is selected in `src/main.cpp` by changing the `COMM_MODE` constant:
 
 ```cpp
-struct CommandPacket {
-    uint8_t targetBuoyId;      // 0-5
-    BuoyCommand command;       // Type de commande
-    int16_t heading;           // Cap cible (-180 à +180°)
-    int8_t throttle;           // Vitesse (-100 à +100%)
-    tEtatsNav navigationMode;  // Mode de navigation
-    uint32_t timestamp;        // Horodatage
+// ESP-NOW: 2.4 GHz, short range (~100 m), no external module required
+#define COMM_MODE CommMode::ESP_NOW
+
+// LoRa: 920 MHz, long range (> 1 km), requires the LoRaE220-920 module
+#define COMM_MODE CommMode::LORA
+```
+
+> **Default mode: LoRa.**  
+> In LoRa mode, ESP-NOW is also enabled in passive listening mode to receive buoy status broadcasts (more responsive than LoRa polling).
+
+### LoRa wiring (Atom S3 + Unit LoRaE220-920)
+
+| Signal | Atom S3 pin | LoRaE220-920 pin |
+|--------|-------------|-----------------|
+| RX (Atom receives) | G1 | Module TX |
+| TX (Atom sends) | G2 | Module RX |
+
+> The M0/M1 switches on the module must be set to **OFF** (normal transmission mode).  
+> Set M0/M1 to ON only to reconfigure the module using `LORA_MODE_CONFIGURATION`.
+
+### LoRa parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Frequency | 920.6 MHz (channel 0x00, Japan ISM band) |
+| Air data rate | 2.4 kbps |
+| TX power | 22 dBm |
+| Joystick address | 0x0007 |
+
+---
+
+## Controls
+
+### Buttons
+
+| Button | Index | Action |
+|--------|-------|--------|
+| BTN_LEFT_STICK | 0 | Short press → `CMD_INIT_HOME` |
+| BTN_RIGHT_STICK | 1 | Short press → `CMD_HOME_VALIDATION` |
+| BTN_LEFT | 2 | Short press → `CMD_NAV_HOLD` |
+| BTN_RIGHT | 3 | Short press → `CMD_NAV_STOP` |
+| BTN_ATOM_SCREEN | 4 | Short press → Select next buoy |
+
+### Left joystick (navigation)
+
+| Movement | Command sent |
+|----------|-------------|
+| Up | `CMD_NAV_CAP` — switch to heading navigation mode |
+| Down | `CMD_NAV_HOME` — return to Home position |
+
+### Right joystick (throttle / heading)
+
+| Movement | Command sent |
+|----------|-------------|
+| Up | `CMD_THROTTLE_INCREASE` |
+| Down | `CMD_THROTTLE_DECREASE` |
+| Right | `CMD_HEADING_INCREASE` |
+| Left | `CMD_HEADING_DECREASE` |
+
+> Detection threshold: `±1500` on a `±2048` range.
+
+---
+
+## Software Architecture
+
+```
+main.cpp  (10 Hz loop — Core 1)
+│
+├── JoystickManager        I2C reading of axes and buttons (STM32 @ 0x59)
+│
+├── ESPNowCommunication    Implements ICommunication — ESP-NOW broadcast mode
+├── LoRaCommunication      Implements ICommunication — UART to LoRaE220-920
+│       └── loraRxTask()   FreeRTOS task dedicated to LoRa reception (Core 0)
+│
+├── BuoyStateManager       Active buoy selection, data consolidation
+│                          (merges LoRa + passive ESP-NOW)
+│
+├── CommandManager         Command generation and sending (with retry + ACK)
+│
+├── DisplayManager         128×128 LCD display (modes, heading, battery, GPS…)
+│
+└── Logger                 Centralised logging → USB Serial + optional LCD
+```
+
+### `ICommunication` interface
+
+Both radio modes (`ESPNowCommunication` and `LoRaCommunication`) implement the same `ICommunication` interface. `BuoyStateManager` and `CommandManager` are fully mode-agnostic.
+
+---
+
+## Available Commands
+
+```cpp
+enum BuoyCommand : uint8_t {
+    CMD_INIT_HOME = 0,      // Set Home to current GPS position
+    CMD_THROTTLE_INCREASE,  // Increase throttle
+    CMD_THROTTLE_DECREASE,  // Decrease throttle
+    CMD_HEADING_INCREASE,   // Increase heading
+    CMD_HEADING_DECREASE,   // Decrease heading
+    CMD_NAV_HOLD,           // Hold current position
+    CMD_NAV_CAP,            // Navigate by heading
+    CMD_NAV_HOME,           // Navigate to Home position
+    CMD_NAV_STOP,           // Stop all movement
+    CMD_HOME_VALIDATION,    // Validate Home position
+    CMD_HEARTBEAT           // Keepalive (sent automatically every 3 s)
 };
 ```
 
-### Structure BuoyState (Bouée → Joystick)
+---
+
+## Data Structures
+
+### Command packet (Joystick → Buoy)
+
+```cpp
+struct __attribute__((packed)) CommandPacket {
+    uint8_t  targetBuoyId;   // Target buoy ID (0–7)
+    BuoyCommand command;     // Command type (BuoyCommand)
+    uint32_t timestamp;      // millis() timestamp
+    uint16_t sequenceNumber; // Sequence number for deduplication
+    uint8_t  ttl;            // 1 = original packet, 0 = relayed by Hub
+};
+```
+
+### Buoy state (Buoy → Joystick)
 
 ```cpp
 struct BuoyState {
-    // Identification
-    uint8_t buoyId;                     // ID de la bouée (0-5)
-    uint32_t timestamp;                 // Horodatage du message
-    
-    // État général
-    tEtatsGeneral generalMode;          // Mode général (INIT/READY/MAINTENANCE/HOME_DEFINITION/NAV)
-    tEtatsNav navigationMode;           // Mode navigation (NAV_NOTHING/HOME/HOLD/STOP/CAP/BASIC/TARGET)
-    
-    // État des capteurs
-    bool gpsOk;                         // État capteur GPS
-    bool headingOk;                     // État capteur cap
-    bool yawRateOk;                     // État capteur vitesse de lacet
-    
-    // Données environnementales
-    float temperature;                  // Température en °C
-    
-    // Données batterie
-    float remainingCapacity;            // Capacité restante en mAh
-    
-    // Données de navigation
-    float distanceToCons;               // Distance à la consigne/waypoint en mètres
-    
-    // Commandes autopilote
-    int8_t autoPilotThrottleCmde;       // Commande throttle autopilote (-100 à +100%)
-    float autoPilotTrueHeadingCmde;     // Commande cap autopilote en degrés
-    int8_t autoPilotRudderCmde;         // Commande safran autopilote (-100 à +100%)
-    
-    // Commandes forcées
-    int8_t forcedThrottleCmde;          // Commande throttle forcée (-100 à +100%)
-    bool forcedThrottleCmdeOk;          // Flag commande throttle forcée active
-    float forcedTrueHeadingCmde;        // Commande cap forcée en degrés
-    bool forcedTrueHeadingCmdeOk;       // Flag commande cap forcée active
-    int8_t forcedRudderCmde;            // Commande safran forcée (-100 à +100%)
-    bool forcedRudderCmdeOk;            // Flag commande safran forcée active
+    uint8_t        buoyId;
+    uint32_t       timestamp;
+    tEtatsGeneral  generalMode;              // INIT / READY / MAINTENANCE / HOME_DEFINITION / NAV
+    tEtatsNav      navigationMode;           // NAV_NOTHING / NAV_HOME / NAV_HOLD / NAV_STOP / NAV_CAP / NAV_BASIC / NAV_TARGET
+    bool           gpsOk;
+    bool           headingOk;
+    bool           yawRateOk;
+    double         latitude;
+    double         longitude;
+    float          temperature;
+    float          remainingCapacity;        // Remaining capacity in mAh
+    float          distanceToCons;           // Distance to waypoint (m)
+    int8_t         autoPilotThrottleCmde;    // Autopilot throttle (-100 to +100 %)
+    float          autoPilotTrueHeadingCmde; // Autopilot heading (degrees)
+    uint16_t       sequenceNumber;
+    uint8_t        ttl;
 };
 ```
 
-### Hiérarchie des Modes
+### Navigation mode hierarchy
 
 ```
-Mode Général (tEtatsGeneral)     ← Niveau 1 : État global
-├─ INIT
-├─ READY
-├─ MAINTENANCE
-├─ HOME_DEFINITION
-└─ NAV
-    │
-    └─ Mode Navigation (tEtatsNav)  ← Niveau 2 : Mode de navigation
-       ├─ NAV_NOTHING
-       ├─ NAV_HOME
-       ├─ NAV_HOLD
-       ├─ NAV_STOP
-       ├─ NAV_CAP
-       ├─ NAV_BASIC
-       └─ NAV_TARGET
+tEtatsGeneral (level 1)     tEtatsNav (level 2, active when generalMode == NAV)
+───────────────────────     ──────────────────────────────────────────────────
+INIT                        NAV_NOTHING
+READY                       NAV_HOME
+MAINTENANCE                 NAV_HOLD
+HOME_DEFINITION             NAV_STOP
+NAV ──────────────────────→ NAV_CAP
+                            NAV_BASIC
+                            NAV_TARGET
 ```
-    double longitude;
-    float heading;           // Cap actuel
-    float speed;             // Vitesse m/s
-    NavigationMode mode;     // Mode actuel
-    uint8_t batteryLevel;    // Batterie 0-100%
-    int8_t signalQuality;    // Signal LTE (-1 si pas LTE)
-    bool gpsLocked;          // GPS verrouillé
-    uint32_t timestamp;      // Horodatage
-};
-```
-
-### Fréquences
-
-- **Réception état bouées**: 1 Hz (toutes les secondes)
-- **Nettoyage bouées inactives**: 30 secondes
-- **Timeout bouée**: 15 secondes
-- **Loop principal**: 10 Hz (100ms)
-- **Mise à jour affichage**: 2 Hz (500ms)
 
 ---
 
-## 🖥️ Affichage LCD
-
-### Écran Principal
+## LCD Display
 
 ```
 ┌────────────────────────┐
-│  Bouée #1  ●           │ Header (cyan) + LED état bouée
+│  Buoy #1   ●           │  Header (cyan) + status indicator
 ├────────────────────────┤
-│   CONNECTE             │ État connexion (vert/rouge)
+│   CONNECTED            │  Green / Red based on connection
 │                        │
-│   MODE_GENERAL         │ Mode général (INIT/READY/NAV...)
-│   MODE_NAVIGATION      │ Mode navigation (CAP/HOLD...)
+│   NAV                  │  General mode
+│   NAV_CAP              │  Navigation mode
 │                        │
-│   Cap: 045°            │ Informations navigation
-│   2.5 m/s              │
+│   Hdg: 045°            │  Autopilot heading
+│   75%                  │  Throttle
 │                        │
-│ 🔋85%  🛰️GPS  📶LTE   │ Indicateurs
+│  GPS  BAT:87%  -72dBm  │  Sensors and signal
 └────────────────────────┘
 ```
 
-### Nouveautés v2.0
-
-- **LED d'état** : Indicateur visuel en haut à droite du header
-- **Double affichage modes** : Mode général ET mode navigation
-- **Codes couleur enrichis** : 
-  - Vert : Connecté, batterie >50%
-  - Orange : Batterie 20-50%
-  - Rouge : Déconnecté, batterie <20%
-  - Bleu : Mode NAV_HOME
-  - Cyan : Header, mode NAV_TARGET
-  - Jaune : Mode NAV_HOLD
-  - Blanc : Mode INIT/MAINTENANCE
+**Colour codes:**
+- Green: connected, battery > 50 %
+- Orange: battery 20–50 %
+- Red: disconnected or battery < 20 %
+- Blue: command being sent (waiting for ACK)
+- Cyan: header
+- Yellow: NAV_HOLD mode
 
 ---
 
-## 🎮 Contrôles
+## Timings
 
-### Boutons Disponibles
-
-Le système reconnaît **5 boutons** :
-
-```cpp
-BTN_LEFT_STICK  (0)  // Bouton sur joystick gauche
-BTN_RIGHT_STICK (1)  // Bouton sur joystick droit
-BTN_LEFT        (2)  // Bouton jaune gauche
-BTN_RIGHT       (3)  // Bouton jaune droit
-BTN_ATOM_SCREEN (4)  // 🆕 Écran tactile Atom S3
-```
-
-### Fonctionnalités Actuelles
-
-| Bouton | Action | Fonction |
-|--------|--------|----------|
-| **BTN_LEFT** | Pression courte | Commande INIT_HOME à la bouée active |
-| **BTN_RIGHT** | Pression courte | Sélectionner bouée suivante |
-| **BTN_ATOM_SCREEN** | Pression courte | Sélectionner bouée suivante (alternative) |
-
-### Détections Disponibles
-
-- **Pression simple** : `wasButtonPressed()`
-- **Relâchement** : `wasButtonReleased()`
-- **Maintien prolongé** : `isAtomScreenHeld(durationMs)`
-
-### À Implémenter
-
-- **Joystick GAUCHE Y** → Throttle (vitesse)
-- **Joystick DROIT X** → Cap (+/- 10°)
-- **BTN_RIGHT_STICK** → Fonction à définir
-- **BTN_LEFT_STICK** → HOLD
-- **Maintien BTN_LEFT** → RETURN HOME
+| Item | Value |
+|------|-------|
+| Main loop | 10 Hz (100 ms) |
+| Automatic heartbeat | every 3 s |
+| LoRa RX task (Core 0) | 1 ms pause between listen cycles |
+| Serial debug output | every 2 s |
 
 ---
 
-## 🔧 Architecture Logicielle
-
-```
-main.cpp (Loop 10Hz)
-    │
-    ├─→ JoystickManager.update()
-    │   └─→ Lit I2C (STM32 @ 0x59)
-    │       ├─→ 4 axes joystick (calibrés)
-    │       ├─→ 5 boutons (incluant écran Atom)
-    │       └─→ 2 batteries
-    │
-    ├─→ BuoyStateManager.update()
-    │   └─→ ESPNowCommunication
-    │       ├─→ Découverte automatique des bouées
-    │       ├─→ Reçoit BuoyState (1Hz)
-    │       ├─→ Nettoyage bouées inactives (15s)
-    │       └─→ Envoie CommandPacket
-    │
-    ├─→ CommandManager.generateInitHomeCommand()
-    │   └─→ Création et envoi de commandes
-    │       └─→ ESPNowCommunication.sendCommand()
-    │
-    └─→ DisplayManager.update()
-        └─→ Affiche sur LCD 128x128
-            ├─→ Header avec LED état
-            ├─→ Mode général + navigation
-            ├─→ Cap / Vitesse
-            └─→ Batterie / GPS / Signal
-```
-
-### Modules et Responsabilités
-
-| Module | Responsabilité | Fichiers |
-|--------|----------------|----------|
-| **JoystickManager** | Interface I2C avec STM32, lecture joysticks/boutons | `JoystickManager.h/cpp` |
-| **ESPNowCommunication** | Protocole ESP-NOW, découverte dynamique | `ESPNowCommunication.h/cpp` |
-| **BuoyStateManager** | Gestion états des bouées, sélection active | `BuoyStateManager.h/cpp` |
-| **DisplayManager** | Affichage LCD, interface utilisateur visuelle | `DisplayManager.h/cpp` |
-| **CommandManager** | Génération et envoi de commandes aux bouées | `CommandManager.h/cpp` |
-| **Logger** | Logging centralisé série + LCD | `Logger.h/cpp` |
-
----
-
-## 📊 Logs Série
-
-Le système utilise le **Logger centralisé** pour tous les messages.
-
-### Au Démarrage
+## Serial Logs at Startup
 
 ```
 ===========================================
-  OpenSailingRC - Buoy Joystick v2.0
+  OpenSailingRC - Buoy Joystick v1.0
 ===========================================
 
 1. Initialisation Joystick...
-✓ JoystickManager: STM32 détecté sur I2C
+   -> Joystick: OK
 
-2. Initialisation ESP-NOW...
-✓ ESP-NOW: Adresse MAC locale: 48:E7:29:9E:2B:AC
-✓ ESP-NOW: Initialisé
-✓ Découverte automatique des bouées activée
+2. Initialisation LoRa 920...
+   -> LoRa 920: OK
 
-3. Initialisation BuoyStateManager...
-✓ BuoyStateManager: Initialisé
-✓ Support jusqu'à 6 bouées simultanées
+2b. Initialisation ESP-NOW (écoute passive)...
+   -> ESP-NOW passif: OK (réception broadcasts bouées)
 
-4. Initialisation CommandManager...
-✓ CommandManager: Initialisé
-
-5. Initialisation Display...
-✓ DisplayManager: Initialisé
+3. Attente découverte automatique des bouées...
+4. Configuration du mode de communication...
+   -> Mode: LoRa 920 MHz
+5. Initialisation BuoyStateManager...
+6. Initialisation Display...
+7. Création tâche LoRa RX sur Core 0...
 
 ===========================================
-  SYSTÈME PRÊT - Découverte automatique
+  SYSTEM READY
 ===========================================
 ```
 
-### Découverte d'une Bouée
+---
 
-```
-[ESP-NOW] Nouvelle bouée détectée !
-  MAC: 48:E7:29:9E:2B:AC
-  Bouée ID: 0
-✓ Bouée #0 ajoutée dynamiquement
-✓ 1 bouée(s) active(s)
-```
+## Troubleshooting
 
-### En Fonctionnement
-
-```
---- État système ---
-Joystick L: X=-12 Y=234
-Joystick R: X=0 Y=-5
-Batteries: 4.15V / 4.18V
-Bouée sélectionnée: #0
-Bouées actives: 1/6
-  Mode général: NAV
-  Mode navigation: NAV_CAP
-  Cap: 45° Vitesse: 2.3 m/s
-  GPS: OK Batterie: 87%
--------------------
-
-[ESP-NOW] État reçu de Bouée #0
-  Mode: NAV → NAV_CAP
-  Position: 48.8566°N, 2.3522°E
-  Batterie: 87%, GPS: Locked
-
-[CommandManager] Commande INIT_HOME envoyée à Bouée #0
-```
-
-### Nettoyage Automatique
-
-```
-[ESP-NOW] Nettoyage bouées inactives...
-⚠️ Bouée #2 inactive (dernier contact: il y a 16s)
-✓ Bouée #2 retirée
-✓ 1 bouée(s) active(s)
-```
+| Symptom | Likely cause | Solution |
+|---------|-------------|---------|
+| `ERREUR: Echec initialisation joystick` | STM32 not responding on I2C | Check SDA=38, SCL=39 wiring; STM32 power supply |
+| `ERREUR CRITIQUE: Echec initialisation LoRa` | Module not connected or RX/TX swapped | Check G1/G2 wiring; try `LORA_MODE_CONFIGURATION` |
+| Buoys never detected in ESP-NOW mode | Buoy out of range or not broadcasting | Check buoy firmware; distance < 100 m |
+| Buoys never detected in LoRa mode | Mismatched address or channel | Check `LORA_ADDRESS_L`, `LORA_CHANNEL` in LoRaCommunication.h |
+| Black screen | Display not initialised | Check `M5.begin()`; check power supply |
 
 ---
 
-## 🧪 Tests
+## Additional Documentation
 
-### Test 1: Joystick et Boutons
-
-1. Compiler et flasher le contrôleur
-2. Ouvrir le moniteur série
-3. Vérifier que les 4 axes et 5 boutons sont détectés
-4. Bouger les joysticks → Valeurs changent
-5. Presser les boutons (incluant écran Atom) → Détection OK
-
-**Résultat attendu**: ✅ Valeurs affichées avec calibration
-
-### Test 2: Découverte Automatique
-
-1. Flasher la bouée avec firmware ESP-NOW compatible
-2. Flasher le contrôleur (pas de configuration MAC nécessaire)
-3. Allumer la bouée
-4. Observer les logs série du contrôleur
-
-**Résultat attendu**:
-- ✅ Détection automatique de la bouée
-- ✅ État reçu toutes les secondes
-- ✅ Log "Nouvelle bouée détectée" avec MAC et ID
-
-### Test 3: Modes Hiérarchiques
-
-1. Avec bouée connectée
-2. Observer l'affichage LCD
-3. Vérifier affichage simultané du mode général ET navigation
-4. Tester différents modes sur la bouée
-
-**Résultat attendu**: ✅ Double affichage des modes
-
-### Test 4: Commande INIT_HOME
-
-1. Sélectionner une bouée active
-2. Presser BTN_LEFT (bouton jaune gauche)
-3. Observer logs série
-
-**Résultat attendu**: 
-- ✅ Log "[CommandManager] Commande INIT_HOME envoyée"
-- ✅ Bouée reçoit et exécute la commande
-
-### Test 5: Nettoyage Automatique
-
-1. Connecter une bouée
-2. Éteindre la bouée
-3. Attendre 15 secondes
-4. Observer logs série après 30s (cycle de nettoyage)
-
-**Résultat attendu**: 
-- ✅ Log "Bouée #X inactive"
-- ✅ Bouée retirée automatiquement
-- ✅ Mise à jour du compteur de bouées actives
-
-### Test 6: Multi-Bouées
-
-1. Allumer plusieurs bouées (jusqu'à 6)
-2. Observer leur découverte automatique
-3. Utiliser BTN_RIGHT ou écran Atom pour naviguer
-4. Vérifier l'affichage pour chaque bouée
-
-**Résultat attendu**: 
-- ✅ Toutes les bouées détectées
-- ✅ Navigation fluide entre bouées
-- ✅ Affichage correct de chaque état
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Detailed architecture overview
+- [API_DOCUMENTATION.md](API_DOCUMENTATION.md) — Public API documentation
+- [LORA_INTEGRATION_GUIDE.md](LORA_INTEGRATION_GUIDE.md) — LoRa integration guide
+- [LORA_TROUBLESHOOTING.md](LORA_TROUBLESHOOTING.md) — LoRa troubleshooting
+- [DYNAMIC_BUOY_DISCOVERY.md](DYNAMIC_BUOY_DISCOVERY.md) — Automatic buoy discovery
+- [BUOY_ESPNOW_CONFIG.md](BUOY_ESPNOW_CONFIG.md) — ESP-NOW configuration on the buoy side
 
 ---
 
-## ⚠️ Dépannage
+## Technical Specifications
 
-### Problème: "Échec initialisation joystick"
-
-**Cause**: STM32 ne répond pas sur I2C
-
-**Solution**:
-1. Vérifier connexion I2C (SDA=38, SCL=39)
-2. Vérifier alimentation du STM32
-3. Scanner I2C (devrait trouver 0x59)
-
-### Problème: "Échec initialisation ESP-NOW"
-
-**Cause**: WiFi non configuré correctement
-
-**Solution**:
-1. Vérifier que `WiFi.mode(WIFI_STA)` est appelé
-2. Redémarrer l'ESP32
-3. Vérifier version du firmware ESP32
-
-### Problème: Bouées non détectées automatiquement
-
-**Cause**: Bouée ne broadcast pas ou hors de portée
-
-**Solution**:
-1. Vérifier que la bouée envoie des paquets `BuoyState`
-2. Vérifier que la bouée est sous tension et initialisée
-3. Vérifier portée ESP-NOW (<100m en champ libre)
-4. Observer les logs série pour voir si des paquets arrivent
-
-### Problème: Bouées disparaissent après 15 secondes
-
-**Cause**: Nettoyage automatique actif (normal si bouée inactive)
-
-**Solution**:
-1. Vérifier que la bouée envoie bien des états toutes les secondes
-2. Si c'est normal, la bouée sera redétectée au prochain broadcast
-3. Ajuster le timeout `BUOY_TIMEOUT_MS` si nécessaire
-
-### Problème: Écran noir
-
-**Cause**: LCD non initialisé
-
-**Solution**:
-1. Vérifier que `M5.begin(true, ...)` est appelé
-2. Vérifier alimentation
-3. Essayer `display.setBrightness(255)`
-
-### Problème: Bouton écran Atom ne répond pas
-
-**Cause**: Bouton tactile non détecté
-
-**Solution**:
-1. Vérifier calibration tactile de l'Atom S3
-2. Utiliser `wasAtomScreenPressed()` au lieu de `isButtonPressed(4)`
-3. Tester avec maintien prolongé `isAtomScreenHeld(1000)`
+| Parameter | Value |
+|-----------|-------|
+| Microcontroller | ESP32-S3 (M5Stack Atom S3) |
+| Screen | 128×128 px LCD |
+| Joystick interface | I2C, STM32F030F4P6 @ 0x59 |
+| Radio modules | ESP-NOW 2.4 GHz / LoRa 920 MHz |
+| Simultaneously supported buoys | 8 (`MAX_BUOYS` constant) |
+| Framework | Arduino (PlatformIO, espressif32 @ 6.5.0) |
 
 ---
 
-## 📈 Évolutions et Améliorations
+## License
 
-### Version 2.0 - Actuelle (Octobre 2025)
+This project is distributed under the **GNU General Public License v3.0**.
 
-✅ **Communication Améliorée**
-- Découverte automatique des bouées (plus de configuration MAC)
-- Nettoyage automatique des bouées inactives
-- Support jusqu'à 6 bouées simultanées
-
-✅ **Interface Enrichie**
-- Support du bouton tactile écran Atom S3 (5ème bouton)
-- Détection pression, relâchement et maintien prolongé
-- LED d'état dans le header de l'affichage
-
-✅ **Architecture de Modes**
-- Hiérarchie à deux niveaux (Général + Navigation)
-- Mode général : INIT/READY/MAINTENANCE/HOME_DEFINITION/NAV
-- Mode navigation : NOTHING/HOME/HOLD/STOP/CAP/BASIC/TARGET
-
-✅ **Système de Logging**
-- Logger centralisé dans toutes les classes
-- 90 remplacements Serial → Logger
-- Support série + LCD simultané
-
-✅ **CommandManager Opérationnel**
-- Classe dédiée pour génération de commandes
-- Encapsulation de la logique d'envoi
-- Commande INIT_HOME fonctionnelle
-
-### Prochaines Étapes
-
-🔜 **Contrôle Complet**
-- Mapping joystick → commandes de navigation
-- Throttle (joystick gauche Y)
-- Heading (joystick droit X)
-- Commandes HOLD, STOP, RETURN
-
-🔜 **Interface Avancée**
-- Menu de configuration
-- Affichage trajectoire/historique
-- Calibration joystick interactive
-
-🔜 **Fonctionnalités**
-- Waypoints multiples
-- Missions programmées
-- Enregistrement sessions
-
----
-
-## 📚 Documentation Complémentaire
-
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Architecture détaillée du système
-- **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)** - Documentation complète des APIs
-- **[GENERAL_MODE_FEATURE.md](GENERAL_MODE_FEATURE.md)** - Système de modes hiérarchiques
-- **[DYNAMIC_BUOY_DISCOVERY.md](DYNAMIC_BUOY_DISCOVERY.md)** - Découverte automatique
-- **[ATOM_SCREEN_BUTTON.md](ATOM_SCREEN_BUTTON.md)** - Support bouton écran tactile
-- **[COMMAND_MANAGER_REFACTORING.md](COMMAND_MANAGER_REFACTORING.md)** - Architecture CommandManager
-- **[docs/LOGGER_FINAL_SUMMARY.md](docs/LOGGER_FINAL_SUMMARY.md)** - Intégration complète du Logger
-
----
-
-## 💾 Spécifications Techniques
-
-### Matériel
-- **Contrôleur** : M5Stack Atom S3
-- **Écran** : LCD 128x128 pixels (tactile)
-- **Joysticks** : Dual Atom JoyStick (STM32F030F4P6)
-- **Communication** : ESP-NOW 2.4GHz
-- **Portée** : ~100m en champ libre
-- **Batteries** : 2x mesure de tension
-
-### Logiciel
-- **Plateforme** : PlatformIO
-- **Framework** : Arduino ESP32
-- **RAM utilisée** : ~47KB (14.4%)
-- **Flash utilisée** : ~879KB (26.3%)
-- **Fréquence loop** : 10Hz
-- **Fréquence affichage** : 2Hz
-
----
-
-**Version**: 2.0  
-**Date**: 29 octobre 2025  
-**Auteur**: Philippe Hubert  
-**Status**: ✅ Système Opérationnel - Prêt pour extensions
+- Full license text: **[LICENSE](LICENSE)**
+- Official reference: <https://www.gnu.org/licenses/gpl-3.0.html>
