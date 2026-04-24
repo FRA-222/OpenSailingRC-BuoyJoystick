@@ -24,7 +24,7 @@
 // Changer le mode de communication ici :
 // - CommMode::ESP_NOW : Communication ESP-NOW (2.4 GHz, courte portée, rapide)
 // - CommMode::LORA     : Communication LoRa (920 MHz, longue portée, lente)
-#define COMM_MODE CommMode::ESP_NOW
+#define COMM_MODE CommMode::LORA
 
 // ============================================================================
 // CONFIGURATION - DÉCOUVERTE AUTOMATIQUE DES BOUÉES
