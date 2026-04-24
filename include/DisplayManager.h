@@ -45,8 +45,9 @@ public:
     /**
      * @brief Constructor
      * @param buoyManager Reference to buoy state manager
+     * @param firmwareVersion Firmware version string displayed on startup screen
      */
-    DisplayManager(BuoyStateManager& buoyManager);
+    DisplayManager(BuoyStateManager& buoyManager, const char* firmwareVersion = "1.0.0");
 
     /**
      * @brief Initialize the display
@@ -121,6 +122,7 @@ public:
 
 private:
     BuoyStateManager& buoyMgr;
+    String firmwareVersion;
     bool displayEnabled;
     uint32_t lastUpdateTime;
     uint8_t currentBrightness;

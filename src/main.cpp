@@ -41,6 +41,11 @@
 // Plus besoin de configurer manuellement les adresses MAC !
 
 // ============================================================================
+// VERSION FIRMWARE
+// ============================================================================
+constexpr const char* JOYSTICK_FIRMWARE_VERSION = "1.0.3";
+
+// ============================================================================
 // INSTANCES DES MANAGERS
 // ============================================================================
 JoystickManager joystick;
@@ -50,11 +55,11 @@ LoRaCommunication lora;
 // Instances statiques pour chaque mode
 BuoyStateManager buoyStateESPNow(espNow);
 CommandManager cmdManagerESPNow(espNow);
-DisplayManager displayESPNow(buoyStateESPNow);
+DisplayManager displayESPNow(buoyStateESPNow, JOYSTICK_FIRMWARE_VERSION);
 
 BuoyStateManager buoyStateLora(lora);
 CommandManager cmdManagerLora(lora);
-DisplayManager displayLora(buoyStateLora);
+DisplayManager displayLora(buoyStateLora, JOYSTICK_FIRMWARE_VERSION);
 
 // Pointeurs vers les instances actives selon le mode
 BuoyStateManager* buoyState = nullptr;
@@ -120,7 +125,7 @@ void setup() {
     Logger::log("*** TEST SERIAL ***");
     Logger::log();
     Logger::log("===========================================");
-    Logger::log("  OpenSailingRC - Buoy Joystick v1.0");
+    Logger::log(String("  OpenSailingRC - Buoy Joystick v") + JOYSTICK_FIRMWARE_VERSION);
     Logger::log("===========================================");
     Logger::log();
     

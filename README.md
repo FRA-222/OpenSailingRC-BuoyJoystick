@@ -2,7 +2,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-green.svg)](https://www.espressif.com/en/products/socs/esp32)
-[![Hardware: M5Stack Core2](https://img.shields.io/badge/Hardware-M5Stack%20Core2-orange.svg)](https://shop.m5stack.com/products/m5stack-core2-esp32-iot-development-kit)
+[![Hardware: M5Stack Atom S3](https://img.shields.io/badge/Hardware-M5Stack%20Atom%20S3-orange.svg)](https://docs.m5stack.com/en/core/AtomS3)
 [![Version](https://img.shields.io/badge/Version-1.0.3-brightgreen.svg)](https://github.com/FRA-222/Boat-GPS-Display/releases)
 
 🌐 [Version française](README.fr.md)

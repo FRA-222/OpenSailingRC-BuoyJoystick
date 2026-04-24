@@ -38,8 +38,9 @@ uint16_t DisplayManager::swapColorChannels(uint16_t rgb565) {
     return (new_r << 11) | (new_g << 5) | new_b;
 }
 
-DisplayManager::DisplayManager(BuoyStateManager& buoyManager)
-    : buoyMgr(buoyManager) {
+DisplayManager::DisplayManager(BuoyStateManager& buoyManager, const char* firmwareVersion)
+        : buoyMgr(buoyManager),
+            firmwareVersion((firmwareVersion != nullptr) ? firmwareVersion : "1.0.0") {
     displayEnabled = true;
     lastUpdateTime = 0;
     currentBrightness = DEFAULT_BRIGHTNESS;
@@ -63,7 +64,7 @@ bool DisplayManager::begin() {
     M5.Display.drawString("OpenSailingRC", 64, 40);
     M5.Display.drawString("Buoy Joystick", 64, 60);
     M5.Display.setFont(&fonts::Font0);
-    M5.Display.drawString("v1.0", 64, 90);
+    M5.Display.drawString("v" + firmwareVersion, 64, 90);
     
     delay(2000);
     
