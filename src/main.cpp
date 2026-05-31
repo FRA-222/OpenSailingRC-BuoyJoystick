@@ -107,15 +107,6 @@ void setup() {
     // Initialisation du Logger (sortie série uniquement par défaut)
     Logger::init(true, false);  // Serial activé, LCD désactivé
 
-    // 6. Initialisation de l'affichage
-    Logger::log();
-    Logger::log("6. Initialisation Display...");
-    if (!display->begin()) {
-        Logger::log("   -> ERREUR: Echec initialisation display");
-    } else {
-        Logger::log("   -> Display: OK");
-    }
-
     // Initialisation Serial pour debug (non bloquant)
     //USBSerial.begin(115200);
     //delay(100);  // Court délai pour stabilisation (non bloquant)
@@ -199,6 +190,15 @@ void setup() {
         lora.setDisplayManager(display);
     }
     
+    // 6. Initialisation de l'affichage (après assignation du pointeur display)
+    Logger::log();
+    Logger::log("6. Initialisation Display...");
+    if (!display->begin()) {
+        Logger::log("   -> ERREUR: Echec initialisation display");
+    } else {
+        Logger::log("   -> Display: OK");
+    }
+
     // Initialiser BuoyStateManager
     Logger::log();
     Logger::log("5. Initialisation BuoyStateManager...");
@@ -317,6 +317,38 @@ void loop() {
     else if (leftY < JOYSTICK_THRESHOLD / 2)
     {
         leftDownProcessed = false; // Reset quand joystick revient au centre
+    }
+
+    // Détection mouvement joystick GAUCHE (X axis) - Mode MAINTENANCE
+    static bool leftLeftProcessed = false;
+    static bool leftRightProcessed = false;
+
+    int16_t leftX = joystick.getAxisCentered(AXIS_LEFT_X);
+
+    // Joystick GAUCHE vers la GAUCHE : CMD_MAINTENANCE_ENTER
+    if (leftX < -JOYSTICK_THRESHOLD && !leftLeftProcessed)
+    {
+        uint8_t selectedId = buoyState->getSelectedBuoyId();
+        Logger::logf("\n[JS-L] Joystick GAUCHE vers la GAUCHE - MAINTENANCE_ENTER (Bouee #%d)", selectedId);
+        cmdManager->generateMaintenanceEnterCommand(selectedId);
+        leftLeftProcessed = true;
+    }
+    else if (leftX > -JOYSTICK_THRESHOLD / 2)
+    {
+        leftLeftProcessed = false; // Reset quand joystick revient au centre
+    }
+
+    // Joystick GAUCHE vers la DROITE : CMD_MAINTENANCE_EXIT
+    if (leftX > JOYSTICK_THRESHOLD && !leftRightProcessed)
+    {
+        uint8_t selectedId = buoyState->getSelectedBuoyId();
+        Logger::logf("\n[JS-L] Joystick GAUCHE vers la DROITE - MAINTENANCE_EXIT (Bouee #%d)", selectedId);
+        cmdManager->generateMaintenanceExitCommand(selectedId);
+        leftRightProcessed = true;
+    }
+    else if (leftX < JOYSTICK_THRESHOLD / 2)
+    {
+        leftRightProcessed = false; // Reset quand joystick revient au centre
     }
 
     // ========================================================================
