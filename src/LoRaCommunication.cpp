@@ -113,7 +113,6 @@ bool LoRaCommunication::begin() {
     Logger::log("✓ LoRa: Port série vérifié et nettoyé");
     Logger::log("");
     
-#ifdef LORA_MODE_CONFIGURATION
     // Unified runtime behavior: test UART, prepare config and attempt to apply it.
     // If the module is in CONFIG mode (M0/M1=HIGH) the configuration will be applied.
     // If the module is in NORMAL mode (M0/M1=LOW) the InitLoRaSetting() call will
