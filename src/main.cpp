@@ -30,9 +30,22 @@
 // CONFIGURATION - MODE DE COMMUNICATION
 // ============================================================================
 // Changer le mode de communication ici :
-// - CommMode::ESP_NOW : Communication ESP-NOW (2.4 GHz, courte portée, rapide)
-// - CommMode::LORA     : Communication LoRa (920 MHz, longue portée, lente)
-#define COMM_MODE CommMode::LORA
+// - CommMode::ESP_NOW  : Communication ESP-NOW (2.4 GHz, courte portée, rapide)
+// - CommMode::LORA_920 : LoRa module E220-JP 920 MHz (longue portée, lente)
+// - CommMode::LORA_433 : LoRa module E220-400T22D 433 MHz (idem, autre bande)
+//
+// Les deux bandes LoRa partagent tout le protocole : le code commun se teste
+// avec CommunicationConfig::isLoRa(COMM_MODE), et seule la configuration radio
+// (canal/fréquence) dépend de la bande. La fréquence n'étant pas détectable par
+// logiciel, elle doit correspondre au module physiquement branché — et au
+// réglage de la bouée. Comme pour le 920, le module 433 se configure via son
+// switch M0/M1 (ON = configuration, OFF = normal).
+#define COMM_MODE CommMode::LORA_433
+
+// Bande radio déduite du mode ci-dessus (utilisée par l'instance LoRa)
+constexpr LoRaBand LORA_BAND = (COMM_MODE == CommMode::LORA_433)
+                                   ? LoRaBand::BAND_433
+                                   : LoRaBand::BAND_920;
 
 // ============================================================================
 // CONFIGURATION - DÉCOUVERTE AUTOMATIQUE DES BOUÉES
@@ -43,14 +56,14 @@
 // ============================================================================
 // VERSION FIRMWARE
 // ============================================================================
-constexpr const char* JOYSTICK_FIRMWARE_VERSION = "1.1.1";
+constexpr const char* JOYSTICK_FIRMWARE_VERSION = "1.1.2";
 
 // ============================================================================
 // INSTANCES DES MANAGERS
 // ============================================================================
 JoystickManager joystick;
 ESPNowCommunication espNow;
-LoRaCommunication lora;
+LoRaCommunication lora(LORA_BAND);
 
 // Instances statiques pour chaque mode
 BuoyStateManager buoyStateESPNow(espNow);
@@ -107,6 +120,10 @@ void setup() {
     // Initialisation du Logger (sortie série uniquement par défaut)
     Logger::init(true, false);  // Serial activé, LCD désactivé
 
+    // Enregistre le mode choisi à la compilation : getModeName() est utilisé
+    // dans les logs et resterait sinon sur sa valeur par défaut (ESP-NOW).
+    CommunicationConfig::setMode(COMM_MODE);
+
     // Initialisation Serial pour debug (non bloquant)
     //USBSerial.begin(115200);
     //delay(100);  // Court délai pour stabilisation (non bloquant)
@@ -144,14 +161,16 @@ void setup() {
             Logger::log("   -> ESP-NOW: OK");
         }
     } else {
-        Logger::log("2. Initialisation LoRa 920...");
+        Logger::logf("2. Initialisation %s...", CommunicationConfig::getModeName());
         if (!lora.begin()) {
             Logger::log("   -> ERREUR CRITIQUE: Echec initialisation LoRa");
             while (1) {
                 delay(1000);
             }
         } else {
-            Logger::log("   -> LoRa 920: OK");
+            Logger::logf("   -> %s: OK (canal %d, %.3f MHz)",
+                         CommunicationConfig::getModeName(),
+                         lora.getChannel(), lora.getFrequencyMHz());
         }
         
         // En mode LoRa, initialiser aussi ESP-NOW en écoute passive
@@ -182,7 +201,7 @@ void setup() {
         // Connecter le display pour feedback visuel
         espNow.setDisplayManager(display);
     } else {
-        Logger::log("   -> Mode: LoRa 920 MHz");
+        Logger::logf("   -> Mode: %s", CommunicationConfig::getModeName());
         buoyState = &buoyStateLora;
         cmdManager = &cmdManagerLora;
         display = &displayLora;
@@ -206,7 +225,7 @@ void setup() {
     buoyState->setDisplayManager(display);
     
     // En mode LoRa, configurer l'écoute passive ESP-NOW
-    if (COMM_MODE == CommMode::LORA) {
+    if (CommunicationConfig::isLoRa(COMM_MODE)) {
         buoyState->setESPNowListener(&espNow);
     }
     
@@ -223,7 +242,7 @@ void setup() {
     display->displayConnecting("Ready");
     
     // En mode LoRa, créer la tâche de réception sur Core 0
-    if (COMM_MODE == CommMode::LORA) {
+    if (CommunicationConfig::isLoRa(COMM_MODE)) {
         Logger::log();
         Logger::log("7. Création tâche LoRa RX sur Core 0...");
         xTaskCreatePinnedToCore(
@@ -440,7 +459,7 @@ void loop() {
     // Mode LoRa : La réception est gérée par loraRxTask() sur Core 0 (non-bloquant)
     
     // Traiter les retry de commandes en attente d'ACK
-    if (COMM_MODE == CommMode::LORA) {
+    if (CommunicationConfig::isLoRa(COMM_MODE)) {
         lora.processCommandRetries();
     } else if (COMM_MODE == CommMode::ESP_NOW) {
         espNow.processCommandRetries();
@@ -499,7 +518,7 @@ void loop() {
         
         // En mode LoRa, vérifier aussi les données ESP-NOW (plus récentes ?)
         BuoyInfo* espNowInfo = nullptr;
-        if (COMM_MODE == CommMode::LORA) {
+        if (CommunicationConfig::isLoRa(COMM_MODE)) {
             espNowInfo = espNow.getBuoyInfo(selectedId);
         }
         
