@@ -137,23 +137,78 @@ private:
     volatile uint32_t buoySelectionTime;   ///< Time when selection was shown
     static const uint32_t BUOY_SELECTION_DURATION = 500;  ///< Show selection for 500ms
     
+    /**
+     * @brief Cached state of one text field of the main screen
+     *
+     * A field is redrawn only when its rendered text or its color changes, which
+     * is what actually removes the flickering: comparing raw sensor values isn't
+     * enough since several of them jitter below the displayed resolution.
+     */
+    struct TextField {
+        char text[16] = "";
+        uint16_t color = 0;
+        bool valid = false;    ///< false = nothing drawn yet, next draw is unconditional
+    };
+
     // Cache pour éviter le flickering
     struct DisplayCache {
         uint8_t buoyId = 255;
         bool connected = false;
         bool usingESPNow = false;  ///< Source de données : true=ESP-NOW, false=LoRa
-        tEtatsGeneral generalMode = INIT;
-        tEtatsNav navigationMode = NAV_STOP;
-        bool gpsOk = false;
-        bool headingOk = false;
-        bool yawRateOk = false;
-        uint8_t temperature = 0;
-        uint8_t batteryPercent = 0;
-        uint8_t distanceToCons = 0;
-        float autoPilotTrueHeadingCmde = 0;
-        int8_t autoPilotThrottleCmde = 0;
         bool firstUpdate = true;
+
+        // LEDs capteurs : état dessiné (-1 = jamais dessiné)
+        int8_t gpsOk = -1;
+        int8_t headingOk = -1;
+        int8_t yawRateOk = -1;
+
+        // Champs texte
+        TextField buoyName;
+        TextField temperature;
+        TextField battery;
+        TextField generalMode;
+        TextField navMode;
+        TextField distance;
+        TextField heading;
+        TextField throttle;
     } cache;
+
+    /**
+     * @brief Draw a text field only if its content or color changed
+     *
+     * Uses an opaque text background plus setTextPadding() so the new string
+     * overwrites the previous one in a single pass: no fillRect/redraw sequence,
+     * hence no visible blink.
+     *
+     * @param field    Cache entry for this field
+     * @param text     Text to display
+     * @param color    Foreground color
+     * @param font     Font to use
+     * @param datum    Text datum (alignment) for x/y
+     * @param x        X anchor
+     * @param y        Y anchor
+     * @param padWidth Width erased around the text (must cover the widest value)
+     * @param force    true to redraw even if unchanged (after a screen clear)
+     * @return true if the field was actually repainted
+     */
+    bool drawTextField(TextField& field, const char* text, uint16_t color,
+                       const m5gfx::IFont* font, m5gfx::textdatum_t datum,
+                       int16_t x, int16_t y, uint16_t padWidth, bool force = false);
+
+    /**
+     * @brief Invalidate every cached field so the next draw repaints everything
+     *
+     * Must be called after any fillScreen()/fillRect() that wipes drawn content.
+     */
+    void invalidateCachedFields();
+
+    /**
+     * @brief Draw the static labels of the main screen (GPS / MAG / YAW)
+     *
+     * They never change: painted once per full redraw so the periodic update
+     * only touches the values themselves.
+     */
+    void drawStaticLabels();
     
     static const uint32_t UPDATE_INTERVAL = 500;  ///< Update interval in ms
     static const uint8_t DEFAULT_BRIGHTNESS = 128;
@@ -178,7 +233,7 @@ private:
      * Displays three LED indicators for GPS, MAG (heading), and YAW sensors.
      * Green = OK, Red = KO.
      */
-    void drawSensorLEDs(const BuoyState& state);
+    void drawSensorLEDs(const BuoyState& state, bool force);
     
     /**
      * @brief Convertit les couleurs RGB565 pour compenser la permutation de l'écran AtomS3
@@ -194,7 +249,7 @@ private:
      * 
      * Displays temperature in Celsius and battery level as percentage.
      */
-    void drawTempBattery(const BuoyState& state);
+    void drawTempBattery(const BuoyState& state, bool force);
 
     /**
      * @brief Draw navigation state
@@ -202,7 +257,7 @@ private:
      * 
      * Shows general mode and navigation mode.
      */
-    void drawNavigationState(const BuoyState& state);
+    void drawNavigationState(const BuoyState& state, bool force);
 
     /**
      * @brief Draw distance to consigne and throttle
@@ -210,7 +265,7 @@ private:
      * 
      * Displays distance to waypoint and autopilot throttle command.
      */
-    void drawDistanceThrottle(const BuoyState& state);
+    void drawDistanceThrottle(const BuoyState& state, bool force);
 
     /**
      * @brief Draw battery indicator
