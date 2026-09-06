@@ -85,7 +85,10 @@ enum class LoRaBand {
 #define LORA_ADDRESS_L 0x07         // Low byte of address (Joystick) - Modifié pour correspondre à la Bouée
 #define LORA_NETID 0x00             // Network ID
 #define LORA_UART_BAUD 9600         // UART baud rate (default)
-#define LORA_AIR_DATA_RATE 0x02     // 2.4kbps (balance between range and speed)
+// ⚠️ NON UTILISE en 433 : getAirDataRate() renvoie la valeur en dur, la
+// structure de REG0 differant entre les variants (voir getAirDataRate()).
+// Conserve pour la bande 920. Le debit air 433 est 0b100 = 9,6 kbps.
+#define LORA_AIR_DATA_RATE 0x04     // 9.6 kbps (retenu apres campagnes A.8/A.9)
 #define LORA_TX_POWER 22            // 22 dBm (13 dBm actual output for E220-JP)
 
 /**
@@ -287,6 +290,20 @@ public:
      * reprogrammable.
      */
     uint8_t getAirDataRate() const;
+
+    /**
+     * @brief La configuration a-t-elle été réellement écrite dans le module ?
+     *
+     * `InitLoRaSetting()` ne réussit qu'en mode configuration (switch M0/M1 sur
+     * ON). Sur un démarrage normal elle échoue, et le module **conserve la
+     * configuration qu'il avait en mémoire** — qui peut différer de celle que
+     * le firmware vient d'afficher. Un débit air discordant coupe alors la
+     * liaison sans le moindre message d'erreur (GATEWAY_DESIGN.md §5.1).
+     *
+     * Ce drapeau permet de le signaler au lieu de laisser le log affirmer un
+     * réglage qui n'est peut-être pas celui en service.
+     */
+    bool configApplied = false;
 
     // ICommunication interface implementation
     bool begin() override;

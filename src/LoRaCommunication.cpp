@@ -95,7 +95,14 @@ uint8_t LoRaCommunication::getAirDataRate() const {
     // Voir le commentaire détaillé dans LoRaCommunication.h : la structure de
     // REG0 diffère entre le variant JP et le E220-400T22S, et une mauvaise
     // valeur casse la parité UART du module.
-    return (band == LoRaBand::BAND_433) ? 0b010 : (uint8_t)BW125K_SF9;
+    // 433 : bits[4:3] = parite UART (00 = 8N1), bits[2:0] = debit air.
+    //   0b010 = 2,4 kbps (ancien reglage)   0b100 = 9,6 kbps (retenu)
+    // 9,6 kbps est le debit retenu pour tout l'ecosysteme : meilleur des six
+    // en portee ET seul tenable en rapport cyclique. Il DOIT etre identique
+    // sur la bouee, les deux joysticks et la passerelle — un debit discordant
+    // coupe la liaison sans aucun message d'erreur.
+    // Voir GATEWAY_DESIGN.md §5 et §5.3.
+    return (band == LoRaBand::BAND_433) ? 0b100 : (uint8_t)BW125K_SF9;
 }
 
 bool LoRaCommunication::begin() {
@@ -161,8 +168,25 @@ bool LoRaCommunication::begin() {
     if (Serial2.available()) {
         Logger::log("✓ Module LoRa E220-JP répond correctement (UART test).");
         while (Serial2.available()) Serial2.read();
+        // Le test UART est le SEUL indicateur fiable du mode reel. En mode
+        // normal (P2P transparent) tout octet ecrit sur l'UART est EMIS PAR
+        // RADIO et rien ne revient ; une reponse ne peut donc venir que du
+        // mode configuration. Le dire explicitement : le mode ne se deduisait
+        // jusqu'ici que de deux lignes eloignees, ce qui est une source
+        // d'erreur garantie sur une flottille a configurer.
+        Logger::log("");
+        Logger::log("🔎 LoRa: MODULE EN MODE CONFIGURATION — la liaison radio est INACTIVE.");
+        Logger::log("   Etat attendu UNIQUEMENT pour ecrire la configuration.");
+        Logger::log("   ➜ Pour exploiter : basculer le switch M0/M1, COUPER L'ALIMENTATION,");
+        Logger::log("     puis redemarrer. Un simple reset ne suffit pas — le firmware ne");
+        Logger::log("     coupe jamais l'alimentation du module.");
     } else {
         Logger::log("ℹ️  Pas de réponse immédiate au test UART (possible si switch OFF)");
+        // Aucune reponse = mode normal : en P2P transparent, les octets ecrits
+        // sur l'UART partent par radio et rien ne revient. C'est l'etat
+        // d'exploitation.
+        Logger::log("");
+        Logger::log("🔎 LoRa: MODULE EN MODE NORMAL — liaison radio active.");
     }
 
     Logger::log("");
@@ -189,8 +213,8 @@ bool LoRaCommunication::begin() {
     Logger::log("✓ LoRa: Configuration prepared");
     Logger::logf("   - Canal: %d (%.3f MHz)", getChannel(), getFrequencyMHz());
     Logger::logf("   - Air data rate: REG0 0b%s (%s)",
-                 (band == LoRaBand::BAND_433) ? "010" : "10000",
-                 (band == LoRaBand::BAND_433) ? "2.4 kbps, 8N1" : "BW125K_SF9");
+                 (band == LoRaBand::BAND_433) ? "100" : "10000",
+                 (band == LoRaBand::BAND_433) ? "9.6 kbps, 8N1" : "BW125K_SF9");
     Logger::logf("   - Puissance: registre 0b%s (%s)",
                  (band == LoRaBand::BAND_433) ? "11" : "00",
                  (band == LoRaBand::BAND_433) ? "10 dBm" : "13 dBm");
@@ -224,6 +248,23 @@ bool LoRaCommunication::begin() {
         lora.InitLoRaSetting(loraConfig);
     }
 
+    // Garde-fou : sans ecriture reussie, le module conserve SA configuration,
+    // qui peut differer de tout ce qui vient d'etre affiche ci-dessus. Le dire
+    // franchement, sinon le log affirme un debit qui n'est peut-etre pas celui
+    // en service — et un debit discordant coupe la liaison EN SILENCE.
+    configApplied = (result == 0);
+    if (!configApplied) {
+        // Constat factuel, pas une alerte : avec le switch sur OFF l'ecriture
+        // echoue TOUJOURS, c'est le cas nominal. Un avertissement qui se
+        // declenche a chaque demarrage devient invisible ; on se contente donc
+        // de dire ce qui est, et ou regarder si la liaison ne passe pas.
+        Logger::log("ℹ️  LoRa: configuration non ecrite a ce demarrage (switch M0/M1 sur OFF).");
+        Logger::log("   Le module utilise celle memorisee lors du dernier demarrage switch ON.");
+        Logger::log("   Les valeurs ci-dessus sont celles DEMANDEES par le firmware.");
+        Logger::log("   Liaison muette ? verifier ce point en premier (GATEWAY_DESIGN §5.1).");
+        Logger::log("");
+    }
+
     Logger::log("✓ LoRa: Ready to operate");
     Logger::log("");
     
@@ -253,19 +294,32 @@ void LoRaCommunication::listenForResponses()
         Logger::setSerialOutput(false);
     }
 
-    // Prendre le mutex (attente max 10ms pour éviter blocage)
+    // ⚠️ Le mutex ne protege QUE l'acces au module (Serial2 + RecieveFrame).
+    // Le decodage et le traitement des ACK se font APRES l'avoir rendu.
+    //
+    // Auparavant il etait tenu pendant tout le traitement, processAck()
+    // compris. Depuis que les buffers concatenes sont decoupes correctement,
+    // processAck() peut etre appele DEUX fois par lecture (la bouee emet
+    // chaque ACK deux fois), ce qui allongeait d'autant la section critique.
+    // L'envoi de commande n'attend le mutex que 50 ms : au-dela il abandonne
+    // et l'operateur voit « Echec envoi commande ». Une commande de securite
+    // comme NAV_STOP ne doit pas echouer parce qu'un ACK etait en cours de
+    // decodage.
+    RecvFrame_t recvFrame;
+    bool frameRecue = false;
+
     if (xSemaphoreTake(loraMutex, pdMS_TO_TICKS(10)) != pdTRUE) {
         // Mutex non disponible, quelqu'un d'autre utilise le LoRa
         return;
     }
-    
-    // Écoute non-bloquante des ACK envoyés par les bouées
-    // après réception de COMMAND ou heartbeat
+    if (Serial2.available() > 0) {
+        frameRecue = (lora.RecieveFrame(&recvFrame) == 0);
+    }
+    xSemaphoreGive(loraMutex);
 
-    if (Serial2.available() > 0)
+    if (frameRecue)
     {
-        RecvFrame_t recvFrame;
-        if (lora.RecieveFrame(&recvFrame) == 0)
+        if (recvFrame.recv_data_len > 0)
         {
             // Frame reçue
             lastRssi = recvFrame.rssi;
@@ -278,42 +332,102 @@ void LoRaCommunication::listenForResponses()
                 
                 Logger::logf("📥 LoRa: Paquet reçu - type=%d, taille=%d bytes", *msgType, recvFrame.recv_data_len);
 
-                // Traiter ACK (enrichi avec état)
-                if (*msgType == LoRaMessageType::ACK &&
-                         recvFrame.recv_data_len == sizeof(AckWithStatePacketLora))
+                // ⚠️ NE PAS exiger une longueur EXACTE sur tout le buffer.
+                //
+                // Une lecture UART peut contenir PLUSIEURS trames. La bouee
+                // emet chaque ACK DEUX fois (ACK_REPEAT_COUNT), et le E220 les
+                // livre regulierement concatenes : on observe couramment des
+                // buffers de 37 octets = 18 + 18 + 1. L'ancien test
+                // « recv_data_len == sizeof(AckWithStatePacketLora) » echouait
+                // alors, et les DEUX copies etaient perdues — donc une
+                // reemission de commande, et un acquittement jamais vu par
+                // l'operateur.
+                //
+                // NOTE : cela n'a PAS fausse le taux de reception des campagnes
+                // A.8 / A.9. noteLinkSample() est appele AVANT ce parsing, donc
+                // un buffer concatene comptait deja comme une trame recue. Le
+                // defaut coutait des acquittements, pas des fenetres vides.
+                //
+                // On parcourt donc le buffer trame par trame, en relisant le
+                // messageType a chaque position. Cf. LORA_PROTOCOL.md §8.3 et
+                // le meme correctif cote bouee (maintainConnection).
+                size_t offset = 0;
+                size_t ackCount = 0;
+
+                while (offset < recvFrame.recv_data_len)
                 {
-                    AckWithStatePacketLora *ack = (AckWithStatePacketLora *)recvFrame.recv_data;
-                    
-                    Logger::logf("📥 ACK+State reçu de Bouée #%d (RSSI=%d dBm)",
-                                 ack->buoyId, lastRssi);
-                    
-                    // Traiter l'ACK enrichi
-                    processAck(*ack);
-                }
-                // Support legacy simple ACK (taille AckPacketLora)
-                else if (*msgType == LoRaMessageType::ACK &&
-                         recvFrame.recv_data_len == sizeof(AckPacketLora))
-                {
-                    AckPacketLora *legacyAck = (AckPacketLora *)recvFrame.recv_data;
-                    
-                    Logger::logf("📥 ACK simple (legacy) reçu de Bouée #%d (RSSI=%d dBm)",
-                                 legacyAck->buoyId, lastRssi);
-                    
-                    // Convertir en AckWithStatePacketLora (sans données d'état)
-                    AckWithStatePacketLora enrichedAck;
-                    memset(&enrichedAck, 0, sizeof(enrichedAck));
-                    enrichedAck.messageType = legacyAck->messageType;
-                    enrichedAck.buoyId = legacyAck->buoyId;
-                    enrichedAck.commandTimestamp = legacyAck->commandTimestamp;
-                    enrichedAck.commandType = legacyAck->commandType;
-                    processAck(enrichedAck);
+                    LoRaMessageType frameType = (LoRaMessageType)recvFrame.recv_data[offset];
+                    size_t remaining = recvFrame.recv_data_len - offset;
+                    size_t frameSize = 0;
+
+                    if (frameType == LoRaMessageType::ACK)
+                    {
+                        // Ambiguite assumee : le type ACK couvre deux tailles,
+                        // AckWithStatePacketLora (18 o) et le legacy
+                        // AckPacketLora (7 o), sans rien pour les distinguer.
+                        // On privilegie 18 des qu'il y a la place : c'est ce que
+                        // toutes les bouees en service emettent. Le legacy n'est
+                        // reconnu que s'il ne reste que 7 octets.
+                        frameSize = (remaining >= sizeof(AckWithStatePacketLora))
+                                        ? sizeof(AckWithStatePacketLora)
+                                        : sizeof(AckPacketLora);
+                    }
+                    else if (frameType == LoRaMessageType::COMMAND)
+                    {
+                        frameSize = sizeof(CommandPacketLora);   // commande d'un autre maitre : enjambee
+                    }
+                    else
+                    {
+                        Logger::logf("⚠️  LoRa: type inconnu 0x%02X a l'offset %u — reste du buffer ignore (%u octets)",
+                                     (int)frameType, (unsigned)offset, (unsigned)remaining);
+                        break;
+                    }
+
+                    if (frameSize > remaining)
+                    {
+                        Logger::logf("⚠️  LoRa: trame tronquee a l'offset %u (%u octets restants, %u attendus)",
+                                     (unsigned)offset, (unsigned)remaining, (unsigned)frameSize);
+                        break;
+                    }
+
+                    if (frameType == LoRaMessageType::ACK)
+                    {
+                        if (frameSize == sizeof(AckWithStatePacketLora))
+                        {
+                            AckWithStatePacketLora *ack =
+                                (AckWithStatePacketLora *)(recvFrame.recv_data + offset);
+
+                            if (ackCount == 0)
+                            {
+                                Logger::logf("📥 ACK+State reçu de Bouée #%d (RSSI=%d dBm)",
+                                             ack->buoyId, lastRssi);
+                            }
+                            processAck(*ack);
+                        }
+                        else
+                        {
+                            AckPacketLora *legacyAck =
+                                (AckPacketLora *)(recvFrame.recv_data + offset);
+
+                            Logger::logf("📥 ACK simple (legacy) reçu de Bouée #%d (RSSI=%d dBm)",
+                                         legacyAck->buoyId, lastRssi);
+
+                            AckWithStatePacketLora enrichedAck;
+                            memset(&enrichedAck, 0, sizeof(enrichedAck));
+                            enrichedAck.messageType = legacyAck->messageType;
+                            enrichedAck.buoyId = legacyAck->buoyId;
+                            enrichedAck.commandTimestamp = legacyAck->commandTimestamp;
+                            enrichedAck.commandType = legacyAck->commandType;
+                            processAck(enrichedAck);
+                        }
+                        ackCount++;
+                    }
+
+                    offset += frameSize;
                 }
             }
         }
     }
-    
-    // Libérer le mutex
-    xSemaphoreGive(loraMutex);
 }
 
 //Méthode deprecated - remplacée par le polling séquentiel dans update()

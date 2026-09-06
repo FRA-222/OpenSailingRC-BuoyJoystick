@@ -56,7 +56,7 @@ constexpr LoRaBand LORA_BAND = (COMM_MODE == CommMode::LORA_433)
 // ============================================================================
 // VERSION FIRMWARE
 // ============================================================================
-constexpr const char* JOYSTICK_FIRMWARE_VERSION = "1.1.2";
+constexpr const char* JOYSTICK_FIRMWARE_VERSION = "1.1.6";
 
 // ============================================================================
 // INSTANCES DES MANAGERS
