@@ -5,6 +5,12 @@
 [![Hardware: M5Stack Atom S3](https://img.shields.io/badge/Hardware-M5Stack%20Atom%20S3-orange.svg)](https://docs.m5stack.com/en/core/AtomS3)
 [![Version](https://img.shields.io/badge/Version-1.0.3-brightgreen.svg)](https://github.com/FRA-222/Boat-GPS-Display/releases)
 
+> ⚠️ **Projet gelé (septembre 2026).** Le firmware du joystick v1 (AtomS3 + STM32) est
+> désormais construit depuis **`OpenSailingRC-Joystick-v2`**, environnement
+> `joystick-v1-atoms3`, avec le protocole LoRa v2 (`LoRaProtocol.h`). Ce dépôt reste
+> disponible pour l'historique et les binaires `release/` ≤ 1.1.6 ; aucune évolution n'y
+> sera portée.
+
 🌐 [Version française](README.fr.md)
 
 GPS autonomous buoy controller based on the **M5Stack Atom S3**.  
